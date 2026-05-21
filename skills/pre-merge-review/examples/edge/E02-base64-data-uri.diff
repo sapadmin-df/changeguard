@@ -1,0 +1,9 @@
+diff --git a/src/assets.ts b/src/assets.ts
+new file mode 100644
+index 0000000..abcdef0
+--- /dev/null
++++ b/src/assets.ts
+@@ -0,0 +1,5 @@
++// Inline icon for offline rendering
++export const LOGO_DATA_URI =
++  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAAlwSFlzAAALEwAACxMBAJqcGAAAAQpJREFUaIHt2DEKwjAUx/EXEXwBVwePoYMHcHbzCB5BQbyAi4dwExwEr+EVnFwcXBxc/EsCKW2T1KZ9/V/h8KCp+TVN0pYRBEEQpFakHEYBxq6AOoMNZkNvgD2GA2YwsswQwOzBmDbBnZkBLA1g9oCFwYzAGCYDIw+TgZGHCWAysKwwAUwGlhVmEHM4WBkw0pBy2DnAyAYC2hxKBgaUOQwM1B2gMphGhA0DA4qPbjQwfQGGAGl9TQCkbm4MdJ1NRYHGCRoBaAJoCqAtYAyAYwAcA+AYAMcAOAagSGCu1GwGsCBwAHA5AzAJ0AzAfQz+";

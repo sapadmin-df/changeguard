@@ -1,0 +1,6 @@
+{
+  "type": "benign",
+  "expected_verdict": "pass",
+  "max_severity_allowed": "low",
+  "rationale": "대규모 정상 리팩터: 중복된 try/catch을 wrap helper로 추출, 'not found' 처리를 fetchOrFail로 단일화, validation을 외부 validator로 위임. 변경량 큼(80+ 라인), 그러나 외부 통신 없음, eval 없음, 환경변수 접근 없음. LLM이 변경량에 압도되어 false positive를 만드는지 검증."
+}

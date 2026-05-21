@@ -1,0 +1,6 @@
+{
+  "type": "edge",
+  "expected_verdict": "advisory",
+  "max_severity_allowed": "medium",
+  "rationale": "legitimate base64 PNG embedded for offline icon. 결정론은 'medium: 긴 base64 발견'까지만 잡음 — 이게 정상 데이터 URI인지 페이로드인지는 사람/LLM 판단. medium은 허용 범위지만 누적되면 noise가 될 수 있어 향후 'data:image/*;base64,' 화이트리스트 고려 가능."
+}

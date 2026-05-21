@@ -1,0 +1,6 @@
+{
+  "type": "edge",
+  "expected_verdict": "pass",
+  "max_severity_allowed": "low",
+  "rationale": "날짜 비교 + 환경변수 검사 조합 — M11/M12와 표면이 유사한 정상 feature flag 패턴. LLM이 단순 'logic bomb 표면' 매칭이 아니라 *의도*를 인식해야 함: ROLLOUT_DATE export, 명확한 변수명, 위험 동작 부재. M11과의 대조를 통해 LLM 판단력의 false positive 저항성 검증."
+}

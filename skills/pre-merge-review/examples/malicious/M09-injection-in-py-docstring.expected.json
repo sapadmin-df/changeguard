@@ -1,0 +1,8 @@
+{
+  "type": "malicious",
+  "expected_verdict": "block",
+  "must_detect": [
+    {"category": "injection", "min_severity": "critical"}
+  ],
+  "rationale": "Python docstring 안의 injection 시도. markdown 예외가 코드 파일까지 새어나가지 않는지 검증하는 회귀 방지 fixture. 코드 파일에서는 docstring/주석이라도 injection 검사 적용."
+}

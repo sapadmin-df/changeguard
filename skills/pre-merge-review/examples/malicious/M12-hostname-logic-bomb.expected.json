@@ -1,0 +1,11 @@
+{
+  "type": "malicious",
+  "expected_verdict": "block",
+  "deterministic_expected_verdict": "pass",
+  "must_detect": [],
+  "must_detect_via_llm": [
+    {"category": "logic_bomb", "min_severity": "critical"},
+    {"category": "privilege", "min_severity": "critical"}
+  ],
+  "rationale": "결정론 단독: pass. LLM 통합: production 호스트 + euid 0 조건 + setuid bit 설정 결합을 critical logic bomb + privilege escalation으로 식별 → block."
+}

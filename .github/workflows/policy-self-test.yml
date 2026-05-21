@@ -1,0 +1,79 @@
+# 정책 repo 자신의 CI.
+# 정책 변경 PR마다 fixture corpus 전체를 돌려 회귀를 막는다.
+# 이게 falsification 메커니즘이 실제로 *집행*되는 곳.
+
+name: policy-self-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 정책 repo 자신의 워크플로우도 같은 규칙 적용 — pinning 강제
+concurrency:
+  group: policy-self-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------- Job 1: 워크플로우 자신의 pinning 검증 ----------
+  workflow-pins:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # actions/checkout v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Verify workflow SHA pinning
+        run: bash scripts/verify-workflow-pins.sh
+
+  # ---------- Job 2: Fixture corpus 회귀 검사 ----------
+  fixture-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      # actions/checkout v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Install jq
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq jq
+
+      - name: Run deterministic-only fixture tests
+        run: bash skills/pre-merge-review/examples/run-tests.sh
+
+      - name: Run integrated fixture tests (with mock LLM)
+        run: bash skills/pre-merge-review/examples/run-tests-integrated.sh
+
+  # ---------- Job 3: Mock vs Production drift 검증 ----------
+  # 비용 발생 작업 — schedule trigger 또는 수동 trigger에서만 실행.
+  # PR마다 돌리지 않는다. baseline 갱신 PR에는 별도 수동 검증 필요.
+  mock-drift:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      # actions/checkout v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Install jq
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq jq
+
+      - name: Verify mock vs production LLM
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python3 skills/pre-merge-review/examples/verify-mock-vs-production.py
+        continue-on-error: true  # drift는 정보 — 실패가 정책 변경을 막으면 안 됨
+
+      - name: Notify on drift
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            curl -X POST -H 'Content-type: application/json' \
+              --data '{"text":"📊 Mock vs Production drift detected in changeguard. Review mock responses or investigate LLM behavior change."}' \
+              "$SLACK_WEBHOOK_URL"
+          fi

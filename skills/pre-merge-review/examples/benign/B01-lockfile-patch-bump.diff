@@ -1,0 +1,17 @@
+diff --git a/package-lock.json b/package-lock.json
+index 1234567..abcdef0 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -502,9 +502,9 @@
+       }
+     },
+     "node_modules/typescript": {
+-      "version": "5.3.2",
+-      "resolved": "https://registry.npmjs.org/typescript/-/typescript-5.3.2.tgz",
+-      "integrity": "sha512-aaaabbbbccccdddd=="
++      "version": "5.3.3",
++      "resolved": "https://registry.npmjs.org/typescript/-/typescript-5.3.3.tgz",
++      "integrity": "sha512-eeeeffffgggghhhh=="
+     },
+     "node_modules/uuid": {
+       "version": "9.0.1",

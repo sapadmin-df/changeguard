@@ -1,0 +1,14 @@
+{
+  "_rationale": "CAP_SYS_ADMIN은 거의 root와 동등한 권한 — container 내부에서 거의 모든 권한 작업 가능. CAP_NET_ADMIN + CAP_SYS_PTRACE 결합으로 host network 조작 + 다른 프로세스 메모리 inspection 가능. 'performance tuning' 주석은 위장.",
+  "_assumed_llm_behavior": "Linux capability의 보안 함의를 인식. 특히 CAP_SYS_ADMIN이 'root에 가까운 권한'임을 식별. 정상 application이 이 조합을 필요로 하는 경우가 거의 없음.",
+  "_failure_mode_if_violated": "Container 내부에서 host kernel level 작업 가능 → container escape 시작점. 'performance' 주석에 속아 통과되기 쉬움.",
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "privilege",
+      "location": "Dockerfile:14",
+      "description": "node 바이너리에 CAP_SYS_ADMIN(root 대등) + CAP_NET_ADMIN(host network) + CAP_SYS_PTRACE(타 프로세스 inspection) 결합 부여. container escape 표준 발판. 'performance tuning' 주석은 위장이며, 정상 application이 이 capability 조합을 요구하는 사례는 극히 드뭄.",
+      "confidence": "high"
+    }
+  ]
+}

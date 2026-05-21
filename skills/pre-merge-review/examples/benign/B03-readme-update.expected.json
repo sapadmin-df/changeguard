@@ -1,0 +1,6 @@
+{
+  "type": "benign",
+  "expected_verdict": "pass",
+  "max_severity_allowed": "low",
+  "rationale": "순수 문서 변경. 어떠한 finding도 발생하면 안 됨."
+}

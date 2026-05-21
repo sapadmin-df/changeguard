@@ -1,0 +1,6 @@
+{
+  "type": "benign",
+  "expected_verdict": "pass",
+  "max_severity_allowed": "low",
+  "rationale": "markdown의 fenced code block 안에 curl|sh가 있어도 정책상 통과. 의도된 한계: 문서는 실행되지 않으며, 사용자가 copy-paste 하는 것은 별개 영역. 이 fixture는 결정론 계층이 markdown 예외 정책을 올바르게 따르는지 검증."
+}

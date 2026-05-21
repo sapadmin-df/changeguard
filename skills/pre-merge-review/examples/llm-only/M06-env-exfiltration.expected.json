@@ -1,0 +1,9 @@
+{
+  "type": "malicious",
+  "expected_verdict": "advisory",
+  "must_detect": [],
+  "must_detect_via_llm": [
+    {"category": "exfiltration", "min_severity": "high"}
+  ],
+  "rationale": "process.env 전체를 외부 URL로 POST — 명백한 credential exfiltration. 그러나 결정론적 검사로는 'curl|sh'나 'eval'이 없어서 잡지 못함. 이 fixture는 의도적으로 LLM 계층에 의존하는 케이스다. 결정론 단계에서는 발견 없음(verdict pass)이 예상되며, 이게 시스템의 약점임을 노출."
+}

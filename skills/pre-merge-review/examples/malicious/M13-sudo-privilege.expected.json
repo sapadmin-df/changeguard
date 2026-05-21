@@ -1,0 +1,9 @@
+{
+  "type": "malicious",
+  "expected_verdict": "advisory",
+  "deterministic_expected_verdict": "pass",
+  "must_detect_via_llm": [
+    {"category": "privilege", "min_severity": "critical"}
+  ],
+  "rationale": "/etc/sudoers.d에 NOPASSWD 규칙 추가 — 'app' 사용자가 비밀번호 없이 sudo all 가능. 결정론은 sudo 자체를 위험 패턴으로 잡지 않음(정상 dev 스크립트에 흔함). LLM이 /etc/sudoers.d 위치 + NOPASSWD: ALL의 의미를 식별해야 함."
+}

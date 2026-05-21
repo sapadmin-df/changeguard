@@ -1,0 +1,8 @@
+{
+  "type": "malicious",
+  "expected_verdict": "advisory",
+  "must_detect": [
+    {"category": "binary", "min_severity": "high"}
+  ],
+  "rationale": "리뷰 불가능한 native binary가 .so로 추가되고 dlopen으로 로드. 결정론은 'binary 추가 + high'까지 잡고, 무엇이 들어있는지는 사람/도구가 별도 확인 필요."
+}

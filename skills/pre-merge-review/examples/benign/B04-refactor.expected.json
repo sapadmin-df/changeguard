@@ -1,0 +1,6 @@
+{
+  "type": "benign",
+  "expected_verdict": "pass",
+  "max_severity_allowed": "low",
+  "rationale": "정상적인 리팩터링. 어떤 의심 패턴도 없음."
+}

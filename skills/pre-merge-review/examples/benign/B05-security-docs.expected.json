@@ -1,0 +1,6 @@
+{
+  "type": "benign",
+  "expected_verdict": "pass",
+  "max_severity_allowed": "low",
+  "rationale": "보안 가이드 문서. markdown 파일은 패턴/injection 검사에서 제외되므로 어떤 finding도 발생하지 않아야 함. 이 fixture가 PASS로 잡히는 것이 정책 수정의 검증 지표."
+}

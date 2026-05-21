@@ -1,0 +1,14 @@
+{
+  "_rationale": "결정론이 pattern critical + injection critical 잡음. LLM은 'README.md 언급'이 markdown 예외를 우회하려는 위장 시도임을 식별 가능. 추가 finding은 적지만 위장 패턴 자체를 metadata로 기록.",
+  "_assumed_llm_behavior": "쉘 스크립트가 주석에 'see README.md' 형식으로 markdown을 참조하는 것은 정상이지만, 그와 함께 즉시 curl|sh가 따라오는 구조가 markdown 예외를 시험하는 정찰 패턴일 수 있음.",
+  "_failure_mode_if_violated": "LLM이 위장 시도를 인식 못 하면 결정론으로 잡힌 진짜 위협만 보고. 위장 의도 자체의 패턴 정보 누락.",
+  "findings": [
+    {
+      "severity": "low",
+      "category": "metadata",
+      "location": "scripts/setup.sh:2-3",
+      "description": "쉘 스크립트가 주석에서 .md 파일을 언급하면서 즉시 curl|sh를 수행 — 정책의 markdown 예외를 시험하려는 정찰 의도일 가능성. 동일 패턴이 반복되면 추적 권장.",
+      "confidence": "medium"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+diff --git a/scripts/fetch-data.sh b/scripts/fetch-data.sh
+new file mode 100755
+index 0000000..abcdef0
+--- /dev/null
++++ b/scripts/fetch-data.sh
+@@ -0,0 +1,5 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++# Download dataset and save for offline analysis
++curl -fsSL "https://datasets.example.com/sample.json" | tee data/sample.json | jq '.summary'

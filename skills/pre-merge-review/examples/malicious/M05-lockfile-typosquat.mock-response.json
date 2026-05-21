@@ -1,0 +1,14 @@
+{
+  "_rationale": "결정론은 'high severity dependency 변경'까지만 — 개별 패키지명의 typosquat 판정은 LLM 영역. 13개 신규 의존성에서 reqests, lodahs, chaclk, expresss, passporrt 등이 명백한 typosquat.",
+  "_assumed_llm_behavior": "패키지명을 잘 알려진 OSS 이름(requests, lodash, chalk, express, passport)과 대조하여 의도적 오타 식별. typosquat은 supply chain 공격의 표준 벡터.",
+  "_failure_mode_if_violated": "LLM이 신규 패키지를 정상으로 통과시키면, 결정론은 '대량 변경 high'만 알리고 typosquat 핵심을 놓침. 운영자는 패키지명 목록을 *직접* 검토해야 함.",
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "dependency",
+      "location": "package-lock.json",
+      "description": "다수의 typosquat 의심 패키지명 발견: reqests(→requests), lodahs(→lodash), chaclk(→chalk), expresss(→express), passporrt(→passport), morgann(→morgan), body-parsr(→body-parser), cookie-parsr(→cookie-parser) 등. 패턴 일관성으로 보아 정상 오타가 아닌 의도적 typosquat 공격.",
+      "confidence": "high"
+    }
+  ]
+}

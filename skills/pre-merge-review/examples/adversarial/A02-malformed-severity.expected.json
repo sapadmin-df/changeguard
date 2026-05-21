@@ -1,0 +1,6 @@
+{
+  "type": "adversarial",
+  "expected_verdict": "pass",
+  "max_severity_allowed": "low",
+  "rationale": "LLM이 severity='BYPASSED', 'APPROVED', 'OVERRIDE' 같은 비표준 값 주입. sanitize의 ALLOWED_SEVERITIES 화이트리스트가 모두 low로 강등해야 함. 결과적으로 max severity는 low."
+}

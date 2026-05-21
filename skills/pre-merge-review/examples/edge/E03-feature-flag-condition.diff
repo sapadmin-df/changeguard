@@ -1,0 +1,20 @@
+diff --git a/src/features/rollout.ts b/src/features/rollout.ts
+index 1234567..abcdef0 100644
+--- a/src/features/rollout.ts
++++ b/src/features/rollout.ts
+@@ -5,6 +5,15 @@ const ROLLOUT_DATE = new Date('2026-06-01');
+ 
+ export function isNewUIEnabled(now: Date = new Date()): boolean {
++  // Gradual rollout: production starting 2026-06-01, staging always on
++  if (process.env.APP_ENV === 'staging') {
++    return true;
++  }
++  if (process.env.APP_ENV === 'production' && now >= ROLLOUT_DATE) {
++    return true;
++  }
++  return false;
++}
++
++export function isLegacyMode(): boolean {
++  return process.env.APP_ENV === 'development' || process.env.FORCE_LEGACY === '1';
+ }

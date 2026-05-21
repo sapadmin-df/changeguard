@@ -1,0 +1,20 @@
+diff --git a/docs/security.md b/docs/security.md
+new file mode 100644
+index 0000000..abcdef0
+--- /dev/null
++++ b/docs/security.md
+@@ -0,0 +1,18 @@
++# Security Guidelines
++
++## Prompt Injection in LLM Tools
++
++If a code reviewer uses an LLM-based tool, untrusted content may try to
++manipulate it with phrases like "IGNORE PREVIOUS instructions" or claims
++such as "SYSTEM PROMPT OVERRIDE". Our pre-merge review intentionally treats
++such phrases as a finding rather than following them.
++
++## What we never do
++
++- We do not run `curl | sh` in onboarding scripts.
++- We do not add postinstall hooks that perform network IO.
++- We do not commit binary blobs without review.

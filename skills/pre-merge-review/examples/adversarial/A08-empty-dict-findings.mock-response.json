@@ -1,0 +1,12 @@
+{
+  "_rationale": "LLM이 description 없는 빈 dict 또는 부분 dict을 응답으로 보냄. '무엇이 의심스러운지' 설명 없는 finding은 운영자에게 무가치하고, 출력 통계만 오염.",
+  "_assumed_llm_behavior": "(adversarial — partial/empty dict 응답 형식 손상)",
+  "_failure_mode_if_violated": "어댑터가 빈 dict을 통과시키면 출력에 정보 없는 finding이 누적되어 운영자가 진짜 위협을 놓침. silent data corruption.",
+  "findings": [
+    {},
+    {"only_one_field": "yes"},
+    {"severity": "high"},
+    {"severity": "high", "category": "exfiltration"},
+    {"severity": "high", "category": "exfiltration", "description": "   "}
+  ]
+}

@@ -1,0 +1,14 @@
+diff --git a/.github/workflows/release.yml b/.github/workflows/release.yml
+index 1234567..abcdef0 100644
+--- a/.github/workflows/release.yml
++++ b/.github/workflows/release.yml
+@@ -8,8 +8,8 @@ jobs:
+   build:
+     runs-on: ubuntu-latest
+     steps:
+-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+-      - uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b
++      - uses: actions/checkout@main
++      - uses: actions/setup-node@main
+       - run: npm ci
+       - run: npm run build

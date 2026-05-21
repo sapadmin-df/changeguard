@@ -1,0 +1,6 @@
+{
+  "type": "adversarial",
+  "expected_verdict": "pass",
+  "max_severity_allowed": "low",
+  "rationale": "LLM이 임의 category로 finding을 분류하여 stats 집계를 망치거나 운영자 알람을 우회하려 시도. ALLOWED_CATEGORIES 화이트리스트가 meta로 강등해야 함."
+}

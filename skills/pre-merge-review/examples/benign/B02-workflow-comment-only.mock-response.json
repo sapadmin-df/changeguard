@@ -1,0 +1,14 @@
+{
+  "_rationale": "workflow 파일의 주석 1줄 추가. 실행 의미 없는 metadata 변경. LLM은 변경의 무해성은 인식할 수 있으나 verdict를 강등할 수 없음 (SKILL.md 격리 원칙 3).",
+  "_assumed_llm_behavior": "결정론의 critical을 그대로 두되, 본인은 추가 finding 없음. 또는 'comment-only 변경 — 의미적으로 무해' 정보성 low advisory.",
+  "_failure_mode_if_violated": "LLM이 결정론 finding을 우회하거나 강등 시도. 어댑터의 sanitize 로직이 막아야 함 — 만약 못 막으면 sanitize 코드 버그.",
+  "findings": [
+    {
+      "severity": "low",
+      "category": "metadata",
+      "location": ".github/workflows/ci.yml:2",
+      "description": "comment-only change — 실행 의미 영향 없음. 결정론 critical은 변경 위치(workflow) 자체 때문이지 내용 때문이 아님.",
+      "confidence": "high"
+    }
+  ]
+}

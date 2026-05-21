@@ -1,0 +1,80 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PreMergeReviewResult",
+  "description": "Output contract for pre-merge-review skill. Both local and CI consumers MUST parse this format.",
+  "type": "object",
+  "required": ["policy_version", "policy_sha", "verdict", "context", "base_ref", "incoming_ref", "findings", "summary"],
+  "properties": {
+    "policy_version": {
+      "type": "string",
+      "description": "SemVer from VERSION file at time of check"
+    },
+    "policy_sha": {
+      "type": "string",
+      "description": "Git commit SHA of the security-policies repo used. Required so local/CI mismatches can be diagnosed."
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["pass", "advisory", "block"],
+      "description": "pass = no concerns; advisory = review recommended, merge allowed with explicit confirmation; block = do not merge"
+    },
+    "context": {
+      "type": "string",
+      "enum": ["local", "ci"],
+      "description": "Execution context — affects how the verdict is acted upon downstream"
+    },
+    "base_ref": { "type": "string", "description": "e.g. HEAD" },
+    "incoming_ref": { "type": "string", "description": "e.g. FETCH_HEAD or origin/main" },
+    "diff_stats": {
+      "type": "object",
+      "properties": {
+        "files_changed": { "type": "integer" },
+        "lines_added": { "type": "integer" },
+        "lines_removed": { "type": "integer" }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["severity", "category", "location", "description", "source"],
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "high", "medium", "low"]
+          },
+          "category": {
+            "type": "string",
+            "enum": ["workflow", "dependency", "injection", "pattern", "binary", "exfiltration", "network", "privilege", "logic_bomb", "metadata", "meta"]
+          },
+          "location": {
+            "type": "string",
+            "description": "file:line when possible, else 'diff' or file path alone"
+          },
+          "description": {
+            "type": "string",
+            "description": "Human-readable explanation in Korean (team language) or English"
+          },
+          "source": {
+            "type": "string",
+            "enum": ["deterministic", "llm"],
+            "description": "Which check produced this finding. Deterministic findings cannot be downgraded by LLM."
+          },
+          "confidence": {
+            "type": "string",
+            "enum": ["high", "medium", "low"],
+            "description": "Required for LLM findings, optional for deterministic"
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "string",
+      "description": "Natural-language summary for human readers (used by local /git-pull display and Slack notifications)"
+    },
+    "next_action_hint": {
+      "type": "string",
+      "description": "Suggested next step for the user, e.g. 'git merge --ff-only FETCH_HEAD' or 'review .github/workflows/deploy.yml'"
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "type": "malicious",
+  "expected_verdict": "block",
+  "must_detect": [
+    {"category": "workflow", "min_severity": "critical"},
+    {"category": "pattern", "min_severity": "critical"}
+  ],
+  "rationale": "Workflow 파일에 curl|sh 패턴 추가 — 빌드 시점에 임의 코드 실행 + 스캐너 자체 신뢰성 훼손. 둘 다 잡혀야 함."
+}

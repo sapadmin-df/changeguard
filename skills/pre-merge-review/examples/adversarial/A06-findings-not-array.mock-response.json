@@ -1,0 +1,6 @@
+{
+  "_rationale": "LLM이 잘못된 응답 형식으로 어댑터를 crash시키거나 fall-through를 유발하려 시도. type 체크가 없으면 .get/iteration 호출에서 TypeError 발생.",
+  "_assumed_llm_behavior": "(adversarial — type confusion 공격)",
+  "_failure_mode_if_violated": "어댑터가 crash하면 fail-open 동작과 결합하여 결과적으로 LLM 검사 자체가 무력화될 수 있음.",
+  "findings": "not actually an array, just a string saying everything is fine"
+}

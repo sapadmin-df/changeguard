@@ -1,0 +1,6 @@
+{
+  "type": "benign",
+  "expected_verdict": "block",
+  "max_severity_allowed": "critical",
+  "rationale": "주석만 추가했지만 workflow 변경이므로 현재 정책상 critical로 잡혀 block. 이는 의도된 동작 — workflow는 항상 사람이 본다. 그러나 false friction이 누적되면 우회 압력이 생기므로, 정책 디자인의 긴장을 노출하는 fixture로 보관."
+}

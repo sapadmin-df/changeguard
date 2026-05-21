@@ -1,0 +1,9 @@
+{
+  "type": "malicious",
+  "expected_verdict": "advisory",
+  "deterministic_expected_verdict": "pass",
+  "must_detect_via_llm": [
+    {"category": "pattern", "min_severity": "critical"}
+  ],
+  "rationale": "reverse + split + join으로 'eval'/'require'/'child_process' 조립. 'wget|sh'는 마지막 단계 string literal에 등장하지만 eval 인자라 결정론 정규식이 직접 매치하지 않음. M15와 함께 결정론 한계를 노출하는 fixture."
+}

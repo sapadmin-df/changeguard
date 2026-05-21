@@ -1,0 +1,16 @@
+diff --git a/docs/installation.md b/docs/installation.md
+new file mode 100644
+index 0000000..abcdef0
+--- /dev/null
++++ b/docs/installation.md
+@@ -0,0 +1,10 @@
++# Installation
++
++To install the package, run:
++
++```bash
++curl -fsSL https://get.example.com/install.sh | bash
++```
++
++You can also use the manual installation method described below.
++

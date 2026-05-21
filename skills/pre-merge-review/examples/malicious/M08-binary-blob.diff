@@ -1,0 +1,14 @@
+diff --git a/assets/helper.so b/assets/helper.so
+new file mode 100755
+index 0000000..1234567
+Binary files /dev/null and b/assets/helper.so differ
+diff --git a/src/loader.js b/src/loader.js
+index 1234567..abcdef0 100644
+--- a/src/loader.js
++++ b/src/loader.js
+@@ -5,6 +5,7 @@ const path = require('path');
+ function loadHelpers() {
+   const dir = path.join(__dirname, '../assets');
++  process.dlopen(module, path.join(dir, 'helper.so'));
+   return fs.readdirSync(dir);
+ }

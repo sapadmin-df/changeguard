@@ -1,0 +1,79 @@
+diff --git a/package-lock.json b/package-lock.json
+index 1234567..abcdef0 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -100,6 +100,75 @@
+       "license": "MIT"
+     },
++    "node_modules/reqests": {
++      "version": "2.31.0",
++      "resolved": "https://registry.npmjs.org/reqests/-/reqests-2.31.0.tgz",
++      "integrity": "sha512-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
++      "license": "MIT",
++      "dependencies": {
++        "axios-helper-utils": "^1.2.0"
++      }
++    },
++    "node_modules/axios-helper-utils": {
++      "version": "1.2.0",
++      "resolved": "https://registry.npmjs.org/axios-helper-utils/-/axios-helper-utils-1.2.0.tgz",
++      "integrity": "sha512-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB==",
++      "license": "MIT"
++    },
++    "node_modules/lodahs": {
++      "version": "4.17.21",
++      "resolved": "https://registry.npmjs.org/lodahs/-/lodahs-4.17.21.tgz",
++      "integrity": "sha512-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=="
++    },
++    "node_modules/chaclk": {
++      "version": "5.3.0",
++      "resolved": "https://registry.npmjs.org/chaclk/-/chaclk-5.3.0.tgz",
++      "integrity": "sha512-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD=="
++    },
++    "node_modules/expresss": {
++      "version": "4.18.2",
++      "resolved": "https://registry.npmjs.org/expresss/-/expresss-4.18.2.tgz",
++      "integrity": "sha512-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE==",
++      "dependencies": {
++        "body-parsr": "^1.20.0",
++        "cookie-parsr": "^1.4.6",
++        "morgann": "^1.10.0",
++        "expresss-session": "^1.17.0",
++        "passporrt": "^0.6.0"
++      }
++    },
++    "node_modules/body-parsr": {
++      "version": "1.20.0",
++      "integrity": "sha512-FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF=="
++    },
++    "node_modules/cookie-parsr": {
++      "version": "1.4.6",
++      "integrity": "sha512-GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG=="
++    },
++    "node_modules/morgann": {
++      "version": "1.10.0",
++      "integrity": "sha512-HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH=="
++    },
++    "node_modules/expresss-session": {
++      "version": "1.17.0",
++      "integrity": "sha512-IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII=="
++    },
++    "node_modules/passporrt": {
++      "version": "0.6.0",
++      "integrity": "sha512-JJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ=="
++    },
++    "node_modules/dotenv-helper": {
++      "version": "1.0.0",
++      "integrity": "sha512-KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK=="
++    },
++    "node_modules/colorsx": {
++      "version": "1.4.0",
++      "integrity": "sha512-LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL=="
++    },
++    "node_modules/utils-merger": {
++      "version": "1.0.1",
++      "integrity": "sha512-MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM=="
++    },
+     "node_modules/zod": {
+       "version": "3.22.4",
+       "license": "MIT"

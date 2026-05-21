@@ -1,0 +1,7 @@
+{
+  "type": "adversarial",
+  "expected_verdict": "pass",
+  "max_severity_allowed": "low",
+  "rationale": "LLM이 거대한 description으로 어댑터 출력을 폭주시키거나 downstream 파서/디스플레이를 방해하려 시도. description[:1000] 자르기가 작동해야 함.",
+  "additional_assertions": {"max_description_length": 1000}
+}

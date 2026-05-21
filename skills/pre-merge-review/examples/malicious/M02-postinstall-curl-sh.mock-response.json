@@ -1,0 +1,14 @@
+{
+  "_rationale": "지난번 onboarding 검토의 핵심 케이스. 결정론이 dependency high + pattern critical 잡음. LLM은 'npm install시 자동 실행 → 모든 개발자 머신 즉시 침투'라는 위협 모델 명시 + analytics.example-cdn.com 도메인 의심.",
+  "_assumed_llm_behavior": "lifecycle script의 자동 실행 특성을 인식하고, CDN 형식 도메인이 데이터 수집을 가장한 페이로드 배포에 자주 사용됨을 식별.",
+  "_failure_mode_if_violated": "LLM이 도메인 의심 없이 통과시키면 운영자가 'analytics CDN이라 정상 telemetry'로 오인할 수 있음. 위협 분류 누락.",
+  "findings": [
+    {
+      "severity": "high",
+      "category": "network",
+      "location": "package.json:postinstall",
+      "description": "analytics.example-cdn.com 같은 CDN 형식 도메인은 종종 페이로드 배포 채널로 위장되어 사용됨. postinstall은 npm install 시점에 모든 개발자 머신에서 무조건 실행됨 — 개발 환경 즉시 침투 가능.",
+      "confidence": "high"
+    }
+  ]
+}

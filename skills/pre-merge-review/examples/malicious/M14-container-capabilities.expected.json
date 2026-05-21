@@ -1,0 +1,9 @@
+{
+  "type": "malicious",
+  "expected_verdict": "advisory",
+  "deterministic_expected_verdict": "pass",
+  "must_detect_via_llm": [
+    {"category": "privilege", "min_severity": "critical"}
+  ],
+  "rationale": "node 실행 파일에 CAP_SYS_ADMIN + CAP_NET_ADMIN + CAP_SYS_PTRACE 부여 — container escape에 필요한 capabilities 조합. 'performance tuning' 주석으로 위장. 결정론은 Dockerfile setcap을 위험 패턴으로 안 잡음. LLM이 capability 조합의 의미 식별 필요."
+}

@@ -1,0 +1,6 @@
+{
+  "type": "adversarial",
+  "expected_verdict": "pass",
+  "max_severity_allowed": "low",
+  "rationale": "LLM이 핵심 필드(description) 누락된 dict을 보냄. 정보 가치 없는 finding을 silent하게 통과시키면 출력 오염. 어댑터가 무시하고 dropped 카운트만 meta로 보고해야 함."
+}

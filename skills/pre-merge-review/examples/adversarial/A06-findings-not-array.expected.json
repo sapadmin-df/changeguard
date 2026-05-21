@@ -1,0 +1,6 @@
+{
+  "type": "adversarial",
+  "expected_verdict": "advisory",
+  "max_severity_allowed": "medium",
+  "rationale": "응답 형식 손상은 (1) LLM 출력 회귀 또는 (2) prompt injection 시도의 가능한 신호다. 단순 무시(verdict pass)는 silent corruption — 운영자가 LLM이 망가지고 있다는 것을 모름. 어댑터는 medium severity 'meta' finding을 추가하여 advisory verdict로 사람 확인을 유도한다."
+}

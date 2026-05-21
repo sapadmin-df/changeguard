@@ -1,0 +1,188 @@
+# changeguard pre-merge-review workflow — 대상 repo용 템플릿
+#
+# 정책 본부: https://github.com/sapadmin-df/changeguard (public)
+#
+# 설치 절차:
+#   1. 대상 repo의 .github/workflows/pre-merge-review.yml 로 복사
+#   2. <FIXME> 표시된 모든 부분 채우기:
+#      - POLICY_REPO_SHA: changeguard의 full commit SHA (40자, branch/tag 금지)
+#      - actions/checkout 등 SHA pin: changeguard의 scripts/pin-actions.sh로 채우기
+#   3. secrets 등록:
+#      - ANTHROPIC_API_KEY: Claude API 키 (필수)
+#      - SLACK_WEBHOOK_URL: 알림용 Slack incoming webhook (선택)
+#
+#   참고: changeguard는 public이므로 정책 repo 접근에 토큰이 필요 없습니다.
+#   (private 전환 시에만 POLICY_REPO_READ_TOKEN secret + checkout의 token: 줄 필요)
+#
+# 갱신 정책:
+#   - changeguard의 새 commit을 받아들이려면 POLICY_REPO_SHA를 *명시적으로* 갱신
+#   - actions/checkout 등의 SHA도 *명시적으로* 갱신
+#   - floating ref (@main, @v4 등)는 supply chain 공격의 직접 통로이므로 사용 금지
+#   - changeguard의 verify-workflow-pins.sh 스크립트로 SHA pinning을 사후 검증 가능
+
+name: pre-merge-review
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [release]
+
+# concurrency: 같은 ref의 연속 push 시 이전 실행 취소 (비용 절약)
+concurrency:
+  group: pre-merge-review-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # changeguard 정책 본부 (public)
+  POLICY_REPO: "sapadmin-df/changeguard"
+  # <FIXME> changeguard의 full commit SHA로 교체 (40자, branch/tag 금지)
+  #         첫 push 후 `git rev-parse HEAD` 또는 GitHub commits 페이지에서 확인
+  POLICY_REPO_SHA: "0000000000000000000000000000000000000000"
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      # 최소 권한 원칙
+      contents: read
+      pull-requests: read
+    timeout-minutes: 10
+    steps:
+      # ---------- 0단계: SHA pinning 사전 검증 ----------
+      # 이 워크플로우 파일 자체에 floating ref가 남아있으면 즉시 fail.
+      # 부트스트랩 문제 — 이 step의 checkout 자체도 SHA pin이어야 한다.
+      - name: Sanity check — no floating refs in this workflow
+        # <FIXME> actions/checkout v4의 full SHA로 교체 (예: 11bd71901bbe5b1630ceea73d27597364c9af683)
+        uses: actions/checkout@<FIXME-CHECKOUT-SHA>
+        with:
+          fetch-depth: 0
+      - name: Detect floating refs in workflow
+        run: |
+          # 이 워크플로우 파일 안에 @<sha>가 아닌 @branch/@tag 형식이 있으면 거부.
+          # <FIXME> 플레이스홀더 자체도 잡힘 — 운영 전 모두 교체 필요.
+          if grep -nE 'uses:\s+[^@]+@(main|master|v[0-9]+|<FIXME)' .github/workflows/pre-merge-review.yml; then
+            echo "::error::이 워크플로우에 floating ref 또는 미해결 FIXME가 있습니다. 모든 uses:는 40자 commit SHA로 고정해야 합니다."
+            exit 1
+          fi
+
+      # ---------- 1단계: changeguard checkout (SHA pin 강제) ----------
+      - name: Checkout changeguard at pinned SHA
+        # <FIXME> actions/checkout v4 SHA로 교체
+        uses: actions/checkout@<FIXME-CHECKOUT-SHA>
+        with:
+          repository: ${{ env.POLICY_REPO }}
+          ref: ${{ env.POLICY_REPO_SHA }}
+          path: .policy
+          # changeguard는 public이므로 token 불필요.
+          # private 전환 시: token: ${{ secrets.POLICY_REPO_READ_TOKEN }} 추가
+
+      - name: Verify policy SHA matches expectation
+        run: |
+          actual=$(git -C .policy rev-parse HEAD)
+          if [ "$actual" != "$POLICY_REPO_SHA" ]; then
+            echo "::error::Policy SHA mismatch: expected $POLICY_REPO_SHA, got $actual"
+            echo "이 차이는 정책 repo가 임의 변경되었거나 ref 해석이 어긋났음을 의미. 워크플로우 중단."
+            exit 1
+          fi
+          # 정책 버전 export (caller로 전달)
+          echo "POLICY_VERSION=$(cat .policy/VERSION)" >> $GITHUB_ENV
+          echo "POLICY_SHA=$actual" >> $GITHUB_ENV
+
+      # ---------- 2단계: incoming diff 계산 ----------
+      - name: Compute incoming diff
+        id: diff
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.after }}
+        run: |
+          # PR이면 base..head, push면 before..after
+          # 0000... base (force push 또는 새 branch)는 비교 불가 → 전체 diff 대신 skip
+          if [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            echo "::warning::base SHA가 zero — force push 또는 새 branch. diff 검사 건너뜀."
+            : > /tmp/incoming.diff
+          else
+            git diff "$BASE_SHA".."$HEAD_SHA" > /tmp/incoming.diff
+          fi
+          line_count=$(wc -l < /tmp/incoming.diff)
+          echo "diff_lines=$line_count" >> $GITHUB_OUTPUT
+          echo "base_sha=$BASE_SHA" >> $GITHUB_ENV
+          echo "incoming_sha=$HEAD_SHA" >> $GITHUB_ENV
+          echo "Diff lines: $line_count"
+
+      # ---------- 3단계: 통합 caller 호출 ----------
+      # ci-caller.py가 다음을 모두 담당:
+      # - 결정론 검사 실행
+      # - gating 결정 (SKILL.md 2단계 규칙)
+      # - LLM adapter 호출 (gating이 허용한 경우)
+      # - verdict 계산
+      # - Slack 알림 디스패치 (verdict별 INFO/REVIEW/ALERT)
+      # - 적절한 exit code 반환 (block → 1, 그 외 → 0)
+      - name: Run pre-merge review
+        id: review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          POLICY_PATH: .policy
+          # POLICY_VERSION, POLICY_SHA는 step 1에서 export됨
+          # BASE_REF, INCOMING_REF
+          BASE_REF: ${{ env.base_sha }}
+          INCOMING_REF: ${{ env.incoming_sha }}
+        run: |
+          python3 .policy/skills/pre-merge-review/checks/ci-caller.py \
+            --diff /tmp/incoming.diff \
+            --output /tmp/review-result.json
+        continue-on-error: false  # block 시 워크플로우 실패
+
+      # ---------- 4단계: 결과 아티팩트 보관 ----------
+      # block 또는 advisory의 경우 운영자가 사후 분석할 수 있도록 결과 JSON 보관
+      - name: Upload review result
+        if: always()
+        # <FIXME> actions/upload-artifact v4 SHA로 교체
+        uses: actions/upload-artifact@<FIXME-UPLOAD-ARTIFACT-SHA>
+        with:
+          name: pre-merge-review-${{ github.run_id }}
+          path: /tmp/review-result.json
+          retention-days: 30
+
+      # ---------- 5단계: PR comment (PR 이벤트만) ----------
+      # block/advisory 시 PR 본문에 결과 요약 추가
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && always()
+        # <FIXME> actions/github-script v7 SHA로 교체
+        uses: actions/github-script@<FIXME-GITHUB-SCRIPT-SHA>
+        with:
+          script: |
+            const fs = require('fs');
+            let result;
+            try {
+              result = JSON.parse(fs.readFileSync('/tmp/review-result.json', 'utf8'));
+            } catch (e) {
+              core.warning(`Could not read review result: ${e.message}`);
+              return;
+            }
+            if (result.verdict === 'pass') return;  // pass는 comment 안 함
+
+            const emoji = result.verdict === 'block' ? '🚨' : '⚠️';
+            const findings = (result.findings || []).slice(0, 5).map(f =>
+              `- **[${f.severity}]** \`${f.category}\` @ \`${f.location}\`: ${f.description}`
+            ).join('\n');
+
+            const body = [
+              `## ${emoji} Pre-Merge Review: \`${result.verdict}\``,
+              ``,
+              `Policy: ${result.policy_version} (\`${result.policy_sha.substring(0,12)}\`)`,
+              ``,
+              `${result.summary}`,
+              ``,
+              `### Top findings`,
+              findings || '_(none)_',
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body,
+            });

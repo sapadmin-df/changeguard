@@ -1,0 +1,21 @@
+{
+  "_rationale": "logic bomb의 3요소가 한 함수에 결합: (1) 날짜 트리거 (Y/M/D 명시 조건), (2) 민감 파일 읽기 (~/.aws/credentials), (3) 외부 endpoint POST. 단독으로는 각각 정상 패턴일 수 있으나 결합이 명백한 backdoor.",
+  "_assumed_llm_behavior": "코드의 의미적 흐름을 따라가 세 요소의 결합을 인식. 'config.svc-metrics.io' 같은 service-like 도메인 위장도 식별.",
+  "_failure_mode_if_violated": "LLM이 세 요소를 별개로 보거나 날짜 조건문을 정상 비즈니스 로직으로 오해하면 logic bomb이 production에 진입. 결정론은 못 잡으므로 LLM 단독 책임 영역.",
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "logic_bomb",
+      "location": "src/scheduler.js:13-22",
+      "description": "2026-09-15 이후 트리거되는 시한 로직. AWS credentials 파일 읽기와 외부 HTTPS POST가 동일 조건문 안에 결합 — 명백한 logic bomb 패턴. 도메인(config.svc-metrics.io)도 정상 service처럼 위장.",
+      "confidence": "high"
+    },
+    {
+      "severity": "high",
+      "category": "exfiltration",
+      "location": "src/scheduler.js:15",
+      "description": "process.env.HOME + '/.aws/credentials' 읽기 — 일반 비즈니스 로직에서 발생할 이유 없음.",
+      "confidence": "high"
+    }
+  ]
+}

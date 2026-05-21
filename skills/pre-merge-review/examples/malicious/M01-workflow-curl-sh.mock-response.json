@@ -1,0 +1,14 @@
+{
+  "_rationale": "결정론이 workflow 변경과 pipe-to-shell 패턴을 critical로 이미 잡았다. LLM은 추가로 (1) curl 대상 도메인의 신뢰성 의심 (2) CI 환경에서 실행 → secrets 접근 가능 (3) install.sh의 실제 내용 불가시성을 별도 finding으로 보강할 것으로 기대.",
+  "_assumed_llm_behavior": "LLM이 도메인 setup.example.com 같은 미확인 외부 출처를 의심하고, CI 컨텍스트의 secrets 노출 위험을 명시.",
+  "_failure_mode_if_violated": "LLM이 추가 정황 finding을 만들지 못하면 운영자가 '왜 위험한가'의 맥락 없이 결정론 alert만 받음. 위협 평가 품질 저하.",
+  "findings": [
+    {
+      "severity": "high",
+      "category": "network",
+      "location": ".github/workflows/ci.yml:13",
+      "description": "외부 미확인 도메인(setup.example.com)에서 fetch한 셸 스크립트를 CI 환경에서 실행. CI 환경의 GITHUB_TOKEN 등 secrets에 접근 가능한 컨텍스트.",
+      "confidence": "high"
+    }
+  ]
+}

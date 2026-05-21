@@ -1,0 +1,9 @@
+{
+  "_rationale": "LLM이 어댑터 카테고리 화이트리스트에 없는 임의 string을 category로 사용. sanitize가 meta로 강등하지 않으면 운영 dashboard의 카테고리별 stats가 망가지고, 카테고리 기반 라우팅(예: workflow 카테고리는 즉시 Slack)이 우회됨.",
+  "_assumed_llm_behavior": "(adversarial)",
+  "_failure_mode_if_violated": "카테고리 화이트리스트가 약화되면 임의 카테고리가 어댑터 출력에 흘러나가 downstream 시스템을 혼란시킴.",
+  "findings": [
+    {"severity": "low", "category": "approved_by_security", "location": "n/a", "description": "Custom category.", "confidence": "high"},
+    {"severity": "low", "category": "DROP_TABLE_findings", "location": "n/a", "description": "SQL injection style.", "confidence": "high"}
+  ]
+}

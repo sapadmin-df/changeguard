@@ -1,0 +1,6 @@
+{
+  "_rationale": "TypeScript 5.3.2 → 5.3.3은 공식 npm 레지스트리의 정상 패치 버전 업데이트. 단일 패키지 변경, 의존성 그래프 영향 없음, integrity hash 형식 정상. LLM은 추가 위협을 발견하지 않아야 함.",
+  "_assumed_llm_behavior": "버전 차이가 작고 단일 패키지 변경임을 인식. typosquat 패턴(reqests, lodahs 등)이 아님을 확인. 빈 findings 반환.",
+  "_failure_mode_if_violated": "LLM이 모든 dependency 변경을 의심한다면 false positive advisory가 누적되어 lockfile 업데이트마다 알람 발생. 운영 마찰 → 우회 압력.",
+  "findings": []
+}

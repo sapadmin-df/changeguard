@@ -1,0 +1,8 @@
+{
+  "type": "malicious",
+  "expected_verdict": "block",
+  "must_detect": [
+    {"category": "pattern", "min_severity": "critical"}
+  ],
+  "rationale": "쉘 스크립트 안에 'README.md' 같은 문자열이 있어도 파일 확장자가 .sh이므로 markdown 예외 적용받지 않음. 파일 단위 판정의 정확성 검증."
+}

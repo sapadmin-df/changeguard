@@ -1,0 +1,6 @@
+{
+  "_rationale": "M11과 표면 유사 (날짜 비교 + 환경변수 + 조건문)이지만 위험 신호 없음. 차이점: (1) 위험 작업 없음(외부 통신 X, credential 읽기 X, 임의 코드 실행 X), (2) 명확한 의도 (export된 ROLLOUT_DATE, 함수명 isNewUIEnabled, 주석 'Gradual rollout'), (3) bool 반환만. LLM이 M11과 E03을 구분하는 능력이 검증의 핵심.",
+  "_assumed_llm_behavior": "logic bomb의 3요소(트리거 + 권한 작업 + 위장) 중 트리거만 존재하고 위험 작업이 없음을 인식. 정상 feature flag로 판정.",
+  "_failure_mode_if_violated": "LLM이 모든 날짜 비교를 logic bomb으로 의심하면 feature rollout PR마다 false positive. 정상 비즈니스 로직과 logic bomb의 *질적* 차이를 인식 못 함.",
+  "findings": []
+}

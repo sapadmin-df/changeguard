@@ -1,0 +1,6 @@
+{
+  "_rationale": "대규모 코드 변경이지만 보안 위협 신호 없음. 모든 변경이 코드 구조 정리: 에러 처리 helper 추출, 중복 제거, validator 위임. 새 import는 모두 internal modules. SQL은 그대로 parameterized.",
+  "_assumed_llm_behavior": "변경량과 위협을 혼동하지 않음. 코드의 의도(refactor)와 실제 변경 내용(구조 정리)이 일치함을 인식. 빈 findings.",
+  "_failure_mode_if_violated": "LLM이 큰 diff에 압도되어 '검토 필요' 같은 무의미한 advisory를 만들면 대규모 리팩터 PR마다 false positive. 운영 마찰 직접 유발 — B04와 같은 카테고리지만 변경량 stress test.",
+  "findings": []
+}

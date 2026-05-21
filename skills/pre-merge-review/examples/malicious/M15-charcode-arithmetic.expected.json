@@ -1,0 +1,9 @@
+{
+  "type": "malicious",
+  "expected_verdict": "advisory",
+  "deterministic_expected_verdict": "pass",
+  "must_detect_via_llm": [
+    {"category": "pattern", "min_severity": "critical"}
+  ],
+  "rationale": "charcode 배열 + String.fromCharCode로 'eval', 'require', 'child_process' 문자열 조립 후 동적 실행. 결정론은 'eval' 문자열이 코드에 안 보이므로 패턴 매칭 불가능. LLM이 charcode → 'eval'/'require' 디코드와 dynamic require + execSync 흐름을 인식해야 함. **결정론의 진짜 한계**를 노출."
+}

@@ -1,0 +1,17 @@
+diff --git a/README.md b/README.md
+index 1234567..abcdef0 100644
+--- a/README.md
++++ b/README.md
+@@ -10,7 +10,11 @@
+ ## Installation
+ 
+ ```bash
+-npm install my-package
++npm install
++npm run build
+ ```
+ 
++## Documentation
++
++자세한 사용법은 docs/ 디렉터리를 참고하세요.
+ 

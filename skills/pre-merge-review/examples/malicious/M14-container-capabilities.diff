@@ -1,0 +1,13 @@
+diff --git a/Dockerfile b/Dockerfile
+index 1234567..abcdef0 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -10,5 +10,8 @@ COPY package*.json ./
+ RUN npm ci --production
+ COPY . .
+ USER node
++
++# Required for performance tuning
++RUN setcap 'cap_sys_admin,cap_net_admin,cap_sys_ptrace+ep' /usr/local/bin/node
++
+ CMD ["node", "index.js"]

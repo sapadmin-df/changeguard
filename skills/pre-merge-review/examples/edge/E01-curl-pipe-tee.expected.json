@@ -1,0 +1,6 @@
+{
+  "type": "edge",
+  "expected_verdict": "pass",
+  "max_severity_allowed": "low",
+  "rationale": "curl | tee | jq — pipe-to-shell이 아니라 pipe-to-stdout-then-jq. 현재 정규식은 'curl ... | sh|bash'만 잡으므로 false positive 안 남. 이 fixture는 regex가 충분히 좁은지 검증."
+}

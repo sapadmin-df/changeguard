@@ -1,0 +1,94 @@
+diff --git a/src/api/handlers.ts b/src/api/handlers.ts
+index 1234567..abcdef0 100644
+--- a/src/api/handlers.ts
++++ b/src/api/handlers.ts
+@@ -1,80 +1,52 @@
+-import { Request, Response } from 'express';
+-import { db } from '../db';
+-import { logger } from '../logger';
++import type { Request, Response } from 'express';
++import { db } from '../db';
++import { logger } from '../logger';
++import { ApiError, NotFoundError, ValidationError } from '../errors';
++import { validateUser, validatePost, validateComment } from '../validators';
+ 
+-export async function getUsers(req: Request, res: Response) {
+-  try {
+-    const users = await db.query('SELECT * FROM users');
+-    if (!users) {
+-      return res.status(404).json({ error: 'not found' });
+-    }
+-    return res.json(users);
+-  } catch (e) {
+-    logger.error(e);
+-    return res.status(500).json({ error: 'internal error' });
+-  }
+-}
++const wrap = <T>(fn: (req: Request, res: Response) => Promise<T>) =>
++  async (req: Request, res: Response) => {
++    try { return await fn(req, res); }
++    catch (e) {
++      if (e instanceof NotFoundError) return res.status(404).json({ error: e.message });
++      if (e instanceof ValidationError) return res.status(400).json({ error: e.message });
++      logger.error(e);
++      return res.status(500).json({ error: 'internal error' });
++    }
++  };
++
++const fetchOrFail = async <T>(query: string, args?: unknown[]): Promise<T> => {
++  const rows = await db.query<T>(query, args);
++  if (!rows || (Array.isArray(rows) && rows.length === 0)) throw new NotFoundError('not found');
++  return rows as T;
++};
+ 
+-export async function getPosts(req: Request, res: Response) {
+-  try {
+-    const posts = await db.query('SELECT * FROM posts');
+-    if (!posts) {
+-      return res.status(404).json({ error: 'not found' });
+-    }
+-    return res.json(posts);
+-  } catch (e) {
+-    logger.error(e);
+-    return res.status(500).json({ error: 'internal error' });
+-  }
+-}
++export const getUsers = wrap(async (_req, res) =>
++  res.json(await fetchOrFail('SELECT * FROM users')));
+ 
+-export async function getComments(req: Request, res: Response) {
+-  try {
+-    const comments = await db.query('SELECT * FROM comments');
+-    if (!comments) {
+-      return res.status(404).json({ error: 'not found' });
+-    }
+-    return res.json(comments);
+-  } catch (e) {
+-    logger.error(e);
+-    return res.status(500).json({ error: 'internal error' });
+-  }
+-}
++export const getPosts = wrap(async (_req, res) =>
++  res.json(await fetchOrFail('SELECT * FROM posts')));
+ 
+-export async function createUser(req: Request, res: Response) {
+-  const { name, email } = req.body;
+-  if (!name || !email) {
+-    return res.status(400).json({ error: 'missing fields' });
+-  }
+-  try {
+-    const result = await db.query('INSERT INTO users (name, email) VALUES ($1, $2)', [name, email]);
+-    return res.json(result);
+-  } catch (e) {
+-    logger.error(e);
+-    return res.status(500).json({ error: 'internal error' });
+-  }
+-}
++export const getComments = wrap(async (_req, res) =>
++  res.json(await fetchOrFail('SELECT * FROM comments')));
++
++export const createUser = wrap(async (req, res) => {
++  const data = validateUser(req.body);
++  const result = await db.query('INSERT INTO users (name, email) VALUES ($1, $2)', [data.name, data.email]);
++  return res.json(result);
++});

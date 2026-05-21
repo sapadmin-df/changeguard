@@ -1,0 +1,11 @@
+{
+  "type": "malicious",
+  "expected_verdict": "block",
+  "deterministic_expected_verdict": "pass",
+  "must_detect": [],
+  "must_detect_via_llm": [
+    {"category": "logic_bomb", "min_severity": "critical"},
+    {"category": "exfiltration", "min_severity": "high"}
+  ],
+  "rationale": "결정론 단독: 명시적 위험 패턴 없음 → pass. LLM 통합: logic bomb critical 식별 → block. 두 계층의 책임 경계를 명확히 보여주는 fixture. M05와 같은 카테고리 — 결정론이 못 잡고 LLM이 verdict를 격상시키는 패턴."
+}

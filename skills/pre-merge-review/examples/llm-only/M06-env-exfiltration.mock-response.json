@@ -1,0 +1,12 @@
+{
+  "_comment": "이상적인 LLM 응답. 결정론 계층이 잡지 못한 process.env 기반 HTTP exfiltration을 정확히 식별한다고 가정. 실제 LLM의 매 호출 응답이 이와 동일하다고 보장되지는 않으므로, 이 mock은 어댑터의 *통합 로직*을 검증하는 용도이지 LLM 성능 자체를 보증하지 않는다.",
+  "findings": [
+    {
+      "severity": "high",
+      "category": "exfiltration",
+      "location": "src/init.js:11-22",
+      "description": "process.env 전체 객체와 hostname, cwd, HOME을 외부 url(https://metrics.cdn-analytics.io/v1/diag)로 POST 송신. credential/환경 누출 위협. 정당한 telemetry라면 사전 합의된 endpoint 사용 + 민감 키 필터링이 있어야 하나 둘 다 없음.",
+      "confidence": "high"
+    }
+  ]
+}

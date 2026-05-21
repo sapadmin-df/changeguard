@@ -1,0 +1,14 @@
+{
+  "_rationale": "결정론이 binary 추가를 high로 잡음. LLM은 함께 추가된 dlopen 호출과 결합되어 'review 불가능한 native code 실행 path'임을 통합 평가.",
+  "_assumed_llm_behavior": "process.dlopen은 Node가 native module을 로드하는 API. binary 파일 + dlopen 결합은 review가 본질적으로 불가능한 실행 경로 도입.",
+  "_failure_mode_if_violated": "LLM이 binary 추가와 dlopen을 별개로 보면 결합 위협의 심각성을 누락. dlopen 단독은 정상 패턴(잘 알려진 native module)이지만 신규 binary와의 결합이 위험.",
+  "findings": [
+    {
+      "severity": "high",
+      "category": "privilege",
+      "location": "src/loader.js:7",
+      "description": "process.dlopen으로 새로 추가된 helper.so를 직접 로드. native binary는 review 불가능하며, dlopen은 sandbox 우회 + 임의 syscall 능력을 가짐. binary 코드의 source/build 출처와 빌드 재현성 증빙 없이는 도입 금지 권장.",
+      "confidence": "high"
+    }
+  ]
+}

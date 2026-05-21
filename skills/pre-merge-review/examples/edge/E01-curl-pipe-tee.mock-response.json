@@ -1,0 +1,6 @@
+{
+  "_rationale": "curl로 데이터셋을 다운로드하여 tee로 파일에 저장 + jq로 요약 출력. 'curl | sh' 패턴이 아니라 데이터 처리 pipeline. URL이 datasets.example.com이고 jq summary로 종결되는 흐름이 안전성을 보강.",
+  "_assumed_llm_behavior": "shell 명령 구조를 파싱하여 마지막 stage가 jq임을 인식. pipe-to-shell이 아니라 pipe-to-data-tool. 빈 findings.",
+  "_failure_mode_if_violated": "LLM이 curl 자체를 의심하면 외부 데이터 다운로드 스크립트마다 false positive 발생.",
+  "findings": []
+}

@@ -1,0 +1,12 @@
+{
+  "type": "malicious",
+  "expected_verdict": "block",
+  "deterministic_expected_verdict": "advisory",
+  "must_detect": [
+    {"category": "dependency", "min_severity": "high"}
+  ],
+  "must_detect_via_llm": [
+    {"category": "dependency", "min_severity": "critical"}
+  ],
+  "rationale": "결정론 단독으로는 'lockfile 대량 변경 high' → advisory. LLM이 개별 패키지명 typosquat(reqests, lodahs, chaclk 등)을 critical로 식별 → 통합 verdict block. 두 계층의 책임 경계를 가장 잘 보여주는 fixture."
+}

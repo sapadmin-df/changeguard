@@ -1,0 +1,6 @@
+{
+  "_rationale": "LLM이 prompt injection 또는 모델 회귀로 인해 결정론 finding을 무시하고 '안전하다'고 응답한 시나리오. 어댑터가 결정론을 보존하는지가 핵심 검증.",
+  "_assumed_llm_behavior": "(이 mock은 LLM이 어떻게 *틀려야* 검증이 되는가를 표현한 adversarial 응답)",
+  "_failure_mode_if_violated": "어댑터가 결정론을 LLM 응답으로 덮어쓰면 verdict block→pass 가능. 가장 치명적 회귀.",
+  "findings": []
+}

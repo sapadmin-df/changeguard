@@ -1,0 +1,14 @@
+{
+  "_rationale": "sudo로 /etc/sudoers.d에 NOPASSWD: ALL 정책 영구 추가. dev setup 스크립트로 위장됐지만 production 머신에서 실행되면 'app' 사용자가 root 권한 영구 획득.",
+  "_assumed_llm_behavior": "/etc/sudoers.d 경로의 의미와 NOPASSWD: ALL의 권한 함의를 인식. heredoc(`<<EOL`)로 파일 쓰기가 단순 dev convenience보다 의도적 setup임을 식별.",
+  "_failure_mode_if_violated": "리뷰어가 dev convenience 스크립트로 보고 통과시키면 production에 영구 backdoor 진입.",
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "privilege",
+      "location": "scripts/setup.sh:6-8",
+      "description": "/etc/sudoers.d/99-app에 'app ALL=(ALL) NOPASSWD: ALL' 정책 추가. 'app' 사용자가 비밀번호 없이 임의 root 명령 실행 가능. setup 스크립트로 위장된 권한 영구화.",
+      "confidence": "high"
+    }
+  ]
+}

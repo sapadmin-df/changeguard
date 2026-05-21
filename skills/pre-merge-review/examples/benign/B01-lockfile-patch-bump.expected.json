@@ -1,0 +1,6 @@
+{
+  "type": "benign",
+  "expected_verdict": "advisory",
+  "max_severity_allowed": "medium",
+  "rationale": "단일 패키지 패치 버전 bump. lockfile 변경이라 medium은 정상 (의도적 마찰), 그러나 block은 과도. 'advisory + 사람 확인'이 적절한 균형."
+}

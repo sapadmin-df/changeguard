@@ -1,0 +1,6 @@
+{
+  "type": "adversarial",
+  "expected_verdict": "pass",
+  "max_severity_allowed": "low",
+  "rationale": "5개 invalid 타입 항목이 모두 isinstance(dict) 체크로 무시되어야 함. 추가로 어댑터가 'dropped 항목 N개' meta finding을 발생시켜 운영자가 LLM 응답 품질 저하를 인지할 수 있어야 함."
+}

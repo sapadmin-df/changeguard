@@ -1,0 +1,6 @@
+{
+  "_rationale": "data:image/png;base64,iVBORw0KGgo... 는 PNG 파일 시그니처(iVBORw0KGgo가 PNG의 base64 인코딩 시작)로 시작하는 legitimate 데이터 URI. 짧고 단일 라인, 변수 export로 import용. eval/exec과 연결 없음.",
+  "_assumed_llm_behavior": "base64 헤더 패턴을 인식하여 PNG 데이터 URI임을 확인. 빈 findings 또는 'legitimate data URI' 정보성 low.",
+  "_failure_mode_if_violated": "LLM이 모든 긴 base64를 의심하면 frontend repo의 inline asset마다 alert. 운영 불가능.",
+  "findings": []
+}

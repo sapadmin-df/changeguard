@@ -1,0 +1,8 @@
+{
+  "type": "malicious",
+  "expected_verdict": "block",
+  "must_detect": [
+    {"category": "pattern", "min_severity": "critical"}
+  ],
+  "rationale": "base64 디코드 후 eval — 정적 분석 회피를 위한 고전 난독화. 인스턴스에서 실행되는 코드는 base64 안에 숨겨져 리뷰어 가시성 0."
+}

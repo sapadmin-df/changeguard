@@ -1,0 +1,12 @@
+{
+  "_rationale": "LLM이 findings 배열에 dict이 아닌 다양한 타입을 섞어 어댑터 crash 또는 잘못된 값 매핑을 유발 시도. 각 항목에 isinstance(dict) 체크가 있어야 모두 무시됨.",
+  "_assumed_llm_behavior": "(adversarial — pure type confusion)",
+  "_failure_mode_if_violated": "type 체크 누락 시 .get() 호출에서 AttributeError → 어댑터 crash → fail-open으로 LLM 검사 자체 무력화.",
+  "findings": [
+    null,
+    "this is just a string",
+    42,
+    true,
+    ["nested", "array"]
+  ]
+}

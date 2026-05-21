@@ -1,0 +1,9 @@
+{
+  "type": "malicious",
+  "expected_verdict": "block",
+  "must_detect": [
+    {"category": "dependency", "min_severity": "high"},
+    {"category": "pattern", "min_severity": "critical"}
+  ],
+  "rationale": "지난번 onboarding 스크립트 검토의 핵심 시나리오. postinstall은 npm install 시점에 자동 실행되므로 개발자 머신에 즉시 침투 가능."
+}

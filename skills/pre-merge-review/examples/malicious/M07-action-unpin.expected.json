@@ -1,0 +1,8 @@
+{
+  "type": "malicious",
+  "expected_verdict": "block",
+  "must_detect": [
+    {"category": "workflow", "min_severity": "critical"}
+  ],
+  "rationale": "workflow 변경이므로 무조건 critical로 잡힘. 그러나 결정론 계층은 'SHA pin 해제'라는 *내용*은 이해 못 함 — 단지 workflow가 변경되었다는 사실만 안다. LLM이나 별도 lint 룰이 이 정제된 판정을 추가해야 함."
+}

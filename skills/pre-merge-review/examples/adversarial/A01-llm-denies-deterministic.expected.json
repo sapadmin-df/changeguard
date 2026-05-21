@@ -1,0 +1,9 @@
+{
+  "type": "malicious",
+  "expected_verdict": "block",
+  "must_detect": [
+    {"category": "workflow", "min_severity": "critical"},
+    {"category": "pattern", "min_severity": "critical"}
+  ],
+  "rationale": "결정론이 critical 2개를 잡았는데 LLM이 '위협 없음' 거짓 응답을 했다 가정. 어댑터는 LLM 응답을 *추가*만 받지 결정론을 *대체*하지 않아야 함. verdict는 결정론으로 block 유지."
+}
