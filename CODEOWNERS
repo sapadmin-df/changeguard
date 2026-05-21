@@ -3,8 +3,9 @@
 # 정책 repo는 sapadmin-df 소유(public). write는 통제, read는 공개.
 # 모든 정책 변경은 아래 maintainer의 승인을 거친다.
 #
-# 주의: CODEOWNERS가 PR 승인을 *강제*하려면 branch protection rule에서
-# "Require review from Code Owners"를 켜야 한다 (public repo는 무료로 가능).
+# CODEOWNERS의 PR 승인 강제는 ruleset `protect-main`의 pull_request 규칙
+# (require_code_owner_review)으로 활성화되어 있다. 상세는 README의
+# "브랜치 보호 & 커밋 서명" 참조.
 
 # 전체 — 정책 변경 승인 필수
 * @sapadmin-df

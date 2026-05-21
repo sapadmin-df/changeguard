@@ -39,8 +39,9 @@ git rev-parse HEAD
 
 push 후 GitHub에서 sapadmin-df → changeguard → Settings:
 - **Settings → Collaborators**: wschoe2020을 **Read** 권한으로 추가
-- **Settings → Branches → Add rule** (main): "Require a pull request before merging"
-  + "Require review from Code Owners" 켜기 (public repo 무료)
+- **Settings → Rules → Rulesets**: `main` 보호 ruleset `protect-main` — 서명 필수,
+  PR + Code Owner 승인, CI status check, force-push/삭제 차단. 규칙 상세는
+  changeguard `README.md`의 "브랜치 보호 & 커밋 서명" 참조
 
 ## Step 1 — oh-my-bas에 워크플로우 추가 (wschoe2020 계정)
 
