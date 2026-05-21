@@ -102,6 +102,39 @@ working tree가 오염되지 않습니다.
 5. 대상 repo의 Actions workflow는 새 SHA를 명시적으로 업데이트해야 적용됨
    (자동 floating 금지)
 
+위 절차는 구두 약속이 아니라 아래 "브랜치 보호 & 커밋 서명"으로 GitHub에서
+강제된다.
+
+## 브랜치 보호 & 커밋 서명
+
+`main` 브랜치는 ruleset `protect-main`으로 보호된다. "정책 변경 절차"가
+기술적으로 강제되는 지점이다.
+
+| 규칙 | 효과 |
+|---|---|
+| `required_signatures` | 검증된 서명이 없는 commit은 거부 |
+| `pull_request` | 직접 push 불가 — PR + 승인 1개 + Code Owner 승인 필수 |
+| `required_status_checks` | `policy-self-test`의 `workflow-pins`·`fixture-tests`가 통과해야 merge 가능 (브랜치 최신화 강제) |
+| `non_fast_forward` / `deletion` | force-push와 `main` 삭제 차단 |
+
+bypass는 저장소 Admin에 한해 `pull_request` 모드로만 허용된다 — 직접 push는
+Admin도 막히고, 솔로 maintainer가 본인 PR을 self-merge할 때만 우회가 적용된다.
+
+### 커밋 서명 설정 (기여자 필수)
+
+`required_signatures` 때문에 서명되지 않은 commit은 PR 단계에서 거부된다.
+SSH 서명 기준 설정:
+
+```bash
+git config gpg.format ssh
+git config user.signingkey ~/.ssh/<your-key>.pub
+git config commit.gpgsign true
+```
+
+그리고 공개키를 GitHub 계정에 **Signing Key** 타입으로 등록한다 (Settings →
+SSH and GPG keys — Authentication Key와는 별도 항목). GitHub의 SSH 공개키는
+계정당 유일하므로, 여러 계정으로 기여한다면 계정마다 별도의 키가 필요하다.
+
 ## 버전
 
 `VERSION` 파일 참조. 로컬/CI 양측 출력에 사용된 정책 SHA가 함께 기록되어야
