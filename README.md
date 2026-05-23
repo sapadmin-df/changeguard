@@ -135,6 +135,46 @@ git config commit.gpgsign true
 SSH and GPG keys — Authentication Key와는 별도 항목). GitHub의 SSH 공개키는
 계정당 유일하므로, 여러 계정으로 기여한다면 계정마다 별도의 키가 필요하다.
 
+## 정책 버전 floor (deprecation)
+
+`min-supported.txt`에 명시된 SHA보다 오래된 정책 SHA에 pin된 소비자는 다음 워크플로우
+실행에서 자동 DEPRECATED 알림 + 워크플로우 실패 처리된다.
+
+동작 (`ci-caller.py` v0.10+):
+
+1. ci-caller.py가 시작 시 changeguard upstream main의 `min-supported.txt`를 fetch
+2. 소비자 `POLICY_REPO_SHA` vs upstream floor를 GitHub compare API로 비교
+3. behind/diverged → Slack DEPRECATED 알림 + `exit 1`
+4. ahead/identical → 정상 진행
+
+특징:
+
+- **정책 *코드*는 여전히 SHA-pinned** (mutable upstream 안 함, RCE 차단) — floor만 동적
+- 위험 표면: 갱신 강제(DoS) 한정, 코드 실행 변경(RCE) 없음
+- 네트워크 실패시 fail-open (소비자 게이트가 멈추지 않도록)
+- 활성 조건: 소비자가 `POLICY_REPO_SHA`를 ci-caller.py v0.10 이상으로 한 번 bump해야 함
+  (이전 SHA는 이 코드가 없어 검사를 수행하지 않음 — bot-watcher가 그 갱신을 자동화)
+
+DEPRECATED 알림은 소비 repo의 `policy-bump-watcher`(스케줄 워크플로우)가 이미 생성해
+둔 갱신 PR이 있으면 그 PR 링크를 본문에 첨부해 즉시 해소 가능하게 안내한다.
+
+## 알림 메시지의 스마트 링크
+
+Slack 알림과 PR 코멘트 모두 다음 식별자를 클릭 가능한 GitHub 링크로 자동 변환:
+
+| 표시 | 링크 대상 |
+|---|---|
+| repo | `https://github.com/{owner}/{name}` |
+| commit SHA | `.../commit/{sha}` |
+| 파일 location (`path:42-50`) | `.../blob/{sha}/path#L42-L50` |
+| policy version | `.../blob/{policy_sha}/VERSION` |
+| policy SHA | changeguard의 `.../commit/{policy_sha}` |
+| workflow run | Actions 실행 페이지 |
+| bump PR | 해당 PR 페이지 |
+
+Slack은 `<url|text>` (mrkdwn), PR 코멘트는 `[text](url)` (markdown). 사용자가 SHA·파일
+경로를 손으로 검색하지 않도록 *통합 관리*되는 메시지.
+
 ## 버전
 
 `VERSION` 파일 참조. 로컬/CI 양측 출력에 사용된 정책 SHA가 함께 기록되어야

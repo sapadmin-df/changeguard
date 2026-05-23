@@ -129,6 +129,9 @@ jobs:
           # BASE_REF, INCOMING_REF
           BASE_REF: ${{ env.base_sha }}
           INCOMING_REF: ${{ env.incoming_sha }}
+          # v0.10+ deprecation 알림에 bump PR 링크를 첨부하기 위해 ci-caller.py가
+          # 현재 repo의 open PR을 조회할 때 사용. 없어도 deprecation 검사 자체는 동작.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 .policy/skills/pre-merge-review/checks/ci-caller.py \
             --diff /tmp/incoming.diff \
@@ -164,20 +167,57 @@ jobs:
             }
             if (result.verdict === 'pass') return;  // pass는 comment 안 함
 
+            // ---- 스마트 링크 helper (markdown) ----
+            const server = context.serverUrl || 'https://github.com';
+            const repo = `${context.repo.owner}/${context.repo.repo}`;
+            const policyRepo = process.env.POLICY_REPO || 'sapadmin-df/changeguard';
+            const headSha = context.payload.pull_request?.head?.sha || context.sha;
+            const runId = context.runId;
+
+            const mdLink = (url, text) => `[${text}](${url})`;
+            const linkSha = (r, sha) => sha
+              ? mdLink(`${server}/${r}/commit/${sha}`, `\`${sha.slice(0,12)}\``)
+              : '`unknown`';
+            const linkFile = (r, sha, loc) => {
+              if (!loc || !sha) return `\`${loc || '?'}\``;
+              const m = loc.match(/^([^:]+?)(?::(\d+)(?:-(\d+))?)?$/);
+              if (!m) return `\`${loc}\``;
+              const [, path, l1, l2] = m;
+              let url = `${server}/${r}/blob/${sha}/${path}`;
+              if (l1) {
+                url += `#L${l1}`;
+                if (l2) url += `-L${l2}`;
+              }
+              return mdLink(url, `\`${loc}\``);
+            };
+
+            // ---- 본문 ----
             const emoji = result.verdict === 'block' ? '🚨' : '⚠️';
+            const linkPolicyVer = mdLink(
+              `${server}/${policyRepo}/blob/${result.policy_sha}/VERSION`,
+              `\`${result.policy_version}\``
+            );
+            const linkPolicySha = linkSha(policyRepo, result.policy_sha);
+            const linkRun = mdLink(
+              `${server}/${repo}/actions/runs/${runId}`,
+              'workflow run'
+            );
+
             const findings = (result.findings || []).slice(0, 5).map(f =>
-              `- **[${f.severity}]** \`${f.category}\` @ \`${f.location}\`: ${f.description}`
+              `- **[${f.severity}]** \`${f.category}\` @ ${linkFile(repo, headSha, f.location)} — ${f.description}`
             ).join('\n');
 
             const body = [
               `## ${emoji} Pre-Merge Review: \`${result.verdict}\``,
               ``,
-              `Policy: ${result.policy_version} (\`${result.policy_sha.substring(0,12)}\`)`,
+              `Policy: ${linkPolicyVer} (${linkPolicySha})`,
               ``,
               `${result.summary}`,
               ``,
               `### Top findings`,
               findings || '_(none)_',
+              ``,
+              `_${linkRun}_`,
             ].join('\n');
 
             await github.rest.issues.createComment({
