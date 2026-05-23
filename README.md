@@ -175,6 +175,49 @@ Slack 알림과 PR 코멘트 모두 다음 식별자를 클릭 가능한 GitHub 
 Slack은 `<url|text>` (mrkdwn), PR 코멘트는 `[text](url)` (markdown). 사용자가 SHA·파일
 경로를 손으로 검색하지 않도록 *통합 관리*되는 메시지.
 
+## v0.11 추가 통합
+
+소비자 액션과 게이트 출력 사이의 마찰을 더 줄이기 위한 통합 4종:
+
+### 1. SHA-only swap 강등 (bump PR 자기-루프 해소)
+
+`.github/workflows/*.yml` 변경의 모든 차분(-/+ 라인)이 **40-hex commit SHA 값
+교체만**으로 이뤄지면, 결정론 워크플로우 finding의 severity를 critical → low로
+강등한다. 다른 패턴의 워크플로우 변경은 영향 없음.
+
+이는 `policy-bump-watcher`가 만드는 PR이 매번 block 받던 자기-루프를 해소.
+LLM은 여전히 호출되어 새 SHA 대상의 의심점을 별도로 검토할 수 있다.
+강등된 finding의 `description`에 `[SHA-only swap downgrade: critical→low]`
+prefix가 붙어 추적 가능.
+
+### 2. POLICY_UPDATED informational 알림
+
+master push 이벤트의 diff에 `POLICY_REPO_SHA` 값 변경이 포함되면 verdict와
+별개로 `🔄 POLICY UPDATED` Slack 메시지를 informational(blue)로 발송. 본문에
+old → new SHA의 **GitHub compare URL**(`/compare/old...new`)을 포함해서
+"무엇이 적용됐는가"의 diff를 즉시 클릭 가능. (Bitbucket의 commit-to-commit
+diff 시뮬레이션과 동등.)
+
+### 3. PR diff inline annotations
+
+finding의 `location` 필드(`path:42-50` 형식 포함)를 GitHub Actions의 annotation
+시스템으로 등록 → PR "Files changed" 탭에서 해당 라인 옆에 직접 표시.
+- critical/high → 빨간 ❌ 아이콘 (`core.error`)
+- medium → 노란 ⚠️ (`core.warning`)
+- low → 파란 ℹ️ (`core.notice`)
+
+### 4. PR body 상단 요약 prepend
+
+block/advisory 시 PR 본문의 최상단에 `<!-- pre-merge-summary-start -->`
+delimiter로 감싼 요약 블록을 idempotent하게 prepend:
+
+```
+> 🚨 [Pre-Merge block] · 2 critical, 1 high · policy 0.11.0 (abc123) · workflow run
+```
+
+PR 목록에서도 미리보기로 가시. 재실행 시 delimiter로 식별해 교체 (중복 누적 방지).
+이 기능은 `permissions: pull-requests: write` 필수 (코멘트와 동일 권한).
+
 ## 버전
 
 `VERSION` 파일 참조. 로컬/CI 양측 출력에 사용된 정책 SHA가 함께 기록되어야

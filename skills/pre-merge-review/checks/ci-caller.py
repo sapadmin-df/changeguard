@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 """
-ci-caller.py — Actions workflow에서 호출하는 통합 caller (v0.10+)
+ci-caller.py — Actions workflow에서 호출하는 통합 caller (v0.11+)
 
 역할:
 1. SKILL.md v0.5 gating 규칙 집행 (변경 카테고리 기반 LLM 호출 결정)
 2. llm-adapter.py 호출 (LLM 호출이 필요한 경우)
 3. verdict별 Slack 알림 디스패치 (INFO/REVIEW/ALERT) — 식별자에 GitHub 링크 자동 포함
 4. exit code로 워크플로우 결과 전달
-5. (v0.10) 정책 SHA가 upstream floor 미만이면 즉시 deprecation 차단 + 갱신 PR 안내
+5. (v0.10+) 정책 SHA가 upstream floor 미만이면 deprecation 차단 + 갱신 PR 안내
+6. (v0.11+) `.github/workflows/` 변경이 40-hex SHA-only swap이면 critical → low 강등
+            (bump PR 자기-루프 해소). 다른 변경은 여전히 critical.
+7. (v0.11+) master push에서 POLICY_REPO_SHA 변경 감지 시 POLICY_UPDATED informational
+            Slack 알림 (compare URL 포함).
 
 게이팅 규칙 (SKILL.md 2단계 표) — 변경 없음:
 - 결정론 critical/high/medium 있음 → LLM 호출
 - 결정론 0 + 코드 파일 변경 있음 → LLM 호출
 - 결정론 0 + markdown/lockfile만 변경 → skip
 - diff 비어있음 → skip
-
-이 caller는 워크플로우의 단일 책임 진입점이다. workflow YAML은 이것만 호출하고
-복잡한 로직은 여기 모인다. 변경/테스트가 fixture corpus로 가능.
 
 환경변수:
   POLICY_PATH        - 정책 repo가 checkout된 경로 (기본 ".policy")
@@ -27,6 +28,7 @@ ci-caller.py — Actions workflow에서 호출하는 통합 caller (v0.10+)
   SLACK_WEBHOOK_URL  - 알림용
   GITHUB_REPOSITORY  - 알림 메시지에 포함
   GITHUB_SHA         - 알림 메시지에 포함 (대상 repo commit SHA)
+  GITHUB_EVENT_NAME  - push/pull_request/workflow_dispatch — POLICY_UPDATED 게이팅에 사용
   GITHUB_RUN_ID      - workflow run 링크
   GITHUB_SERVER_URL  - 링크 도메인 (기본 https://github.com)
   GITHUB_TOKEN       - bump PR 검색용 (없으면 검색 생략, fail-open)
@@ -54,6 +56,7 @@ LOCKFILE_PATTERNS = (
 )
 
 POLICY_REPO_DEFAULT = "sapadmin-df/changeguard"
+SHA_RE = re.compile(r'\b[a-f0-9]{40}\b')
 
 
 # ===== Smart link helpers (Slack mrkdwn 형식) =====
@@ -67,7 +70,6 @@ def _policy_repo():
 
 
 def _slk(url, text):
-    """Slack mrkdwn link: <url|text>"""
     return f"<{url}|{text}>"
 
 
@@ -82,7 +84,6 @@ def _link_commit(repo, sha, short=12):
 
 
 def _link_file(repo, sha, location):
-    """location: 'path' | 'path:42' | 'path:42-50' → 라인 anchor 포함 linked file."""
     if not location or not sha:
         return f"`{location or '?'}`"
     m = re.match(r'^([^:]+?)(?::(\d+)(?:-(\d+))?)?$', location)
@@ -113,13 +114,9 @@ def _link_policy_version(policy_repo, policy_sha, version):
     return _slk(f"{_gh_server()}/{policy_repo}/blob/{policy_sha}/VERSION", f"`{version}`")
 
 
-# ===== Bump PR lookup (스마트 통합: deprecation 알림에 첨부) =====
+# ===== Bump PR lookup =====
 
 def find_open_bump_pr():
-    """consumer repo에 열려있는 policy-bump PR 1건 검색.
-    매칭 기준: label='policy-bump' 또는 title prefix 'ci: bump changeguard policy SHA'.
-    Returns (number, html_url) or None.
-    """
     token = os.environ.get("GITHUB_TOKEN", "")
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     if not token or not repo:
@@ -146,10 +143,9 @@ def find_open_bump_pr():
     return None
 
 
-# ===== Deprecation check (upstream floor 대비 현재 pin 검증) =====
+# ===== Deprecation check =====
 
 def fetch_upstream_floor(policy_repo):
-    """changeguard upstream main의 min-supported.txt에서 floor SHA 추출. None on failure."""
     try:
         url = f"https://raw.githubusercontent.com/{policy_repo}/main/min-supported.txt"
         req = urllib.request.Request(url, headers={"User-Agent": "changeguard-ci-caller"})
@@ -159,7 +155,7 @@ def fetch_upstream_floor(policy_repo):
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
-            m = re.search(r"\b[a-f0-9]{40}\b", line)
+            m = SHA_RE.search(line)
             if m:
                 return m.group(0)
     except Exception as e:
@@ -168,7 +164,6 @@ def fetch_upstream_floor(policy_repo):
 
 
 def compare_sha(policy_repo, base, head):
-    """GitHub compare API. 'ahead'/'behind'/'identical'/'diverged' or None."""
     try:
         url = f"https://api.github.com/repos/{policy_repo}/compare/{base}...{head}"
         req = urllib.request.Request(url, headers={
@@ -188,9 +183,6 @@ def compare_sha(policy_repo, base, head):
 
 
 def check_deprecation(policy_repo, current_policy_sha):
-    """Returns (deprecated: bool, floor_sha: Optional[str]).
-    fail-open: 네트워크/응답 실패시 deprecated=False (게이트는 정상 진행).
-    """
     if not current_policy_sha or current_policy_sha == "unknown":
         return False, None
     floor = fetch_upstream_floor(policy_repo)
@@ -209,7 +201,6 @@ def check_deprecation(policy_repo, current_policy_sha):
 
 
 def build_deprecation_message(current_sha, floor_sha, bump_pr):
-    """DEPRECATED 전용 Slack 메시지 (회색 sidebar)."""
     repo = os.environ.get("GITHUB_REPOSITORY", "unknown")
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     policy_repo = _policy_repo()
@@ -249,14 +240,129 @@ def build_deprecation_message(current_sha, floor_sha, bump_pr):
     }
 
 
+# ===== v0.11+ SHA-only swap downgrade (bump PR 자기-루프 해소) =====
+
+def _extract_file_diff_lines(diff_content, file_path):
+    """diff에서 file_path 섹션의 (-, +) 라인 쌍 추출. Returns (removed, added) 또는 ([], [])."""
+    removed, added = [], []
+    in_file = False
+    in_hunk = False
+    for line in diff_content.splitlines():
+        if line.startswith('diff --git'):
+            in_file = (f' b/{file_path}' in line) or line.endswith(f' b/{file_path}')
+            in_hunk = False
+            continue
+        if not in_file:
+            continue
+        if line.startswith('@@'):
+            in_hunk = True
+            continue
+        if not in_hunk:
+            continue
+        # skip --- /  +++ header lines just in case
+        if line.startswith('---') or line.startswith('+++'):
+            continue
+        if line.startswith('-') and len(line) >= 1:
+            removed.append(line[1:])
+        elif line.startswith('+') and len(line) >= 1:
+            added.append(line[1:])
+    return removed, added
+
+
+def is_sha_only_swap(diff_content, file_path):
+    """file_path의 변경이 40-hex SHA 값 교체만으로 구성되는지.
+    조건: -/+ 라인 수 동일, SHA만 placeholder로 치환했을 때 원본 동일, 실제로 변경 존재.
+    """
+    removed, added = _extract_file_diff_lines(diff_content, file_path)
+    if not removed or len(removed) != len(added):
+        return False
+    if removed == added:
+        return False
+    for r, a in zip(removed, added):
+        if SHA_RE.sub('SHA', r) != SHA_RE.sub('SHA', a):
+            return False
+    return True
+
+
+def downgrade_sha_only_workflow_findings(diff_content, findings):
+    """결정론 workflow critical/high/medium 중 SHA-only-swap 케이스를 low로 강등.
+    다른 변경 패턴은 강등 없음.
+    """
+    out = []
+    for f in findings:
+        is_target = (
+            f.get('source') == 'deterministic'
+            and f.get('category') == 'workflow'
+            and f.get('severity') in ('critical', 'high', 'medium')
+        )
+        if is_target:
+            loc = f.get('location') or ''
+            # location may have line range like "path:42-50" — strip to file path
+            file_path = loc.split(':', 1)[0] if loc else ''
+            if file_path and is_sha_only_swap(diff_content, file_path):
+                f = dict(f)
+                original = f.get('severity', '?')
+                f['severity'] = 'low'
+                f['description'] = (
+                    f"[SHA-only swap downgrade: {original}→low] "
+                    + (f.get('description') or '')
+                    + " — 워크플로우 파일의 모든 변경이 40-hex commit SHA 값 교체. 새 SHA 대상의 신뢰성은 별도 검토 필요."
+                )
+                f['downgraded_from'] = original
+        out.append(f)
+    return out
+
+
+# ===== v0.11+ POLICY_REPO_SHA 변경 감지 → POLICY_UPDATED 알림 =====
+
+def diff_contains_policy_bump(diff_content):
+    """diff에 POLICY_REPO_SHA 값 변경이 있으면 (old_sha, new_sha) 반환, 아니면 None."""
+    SHA_PAT = r'[a-f0-9]{40}'
+    m_old = re.search(r'^-\s*POLICY_REPO_SHA:\s*"(' + SHA_PAT + r')"', diff_content, re.MULTILINE)
+    m_new = re.search(r'^\+\s*POLICY_REPO_SHA:\s*"(' + SHA_PAT + r')"', diff_content, re.MULTILINE)
+    if m_old and m_new:
+        return m_old.group(1), m_new.group(1)
+    return None
+
+
+def build_policy_updated_message(old_sha, new_sha):
+    """POLICY_UPDATED — bump이 master에 반영됐을 때 informational 알림."""
+    repo = os.environ.get("GITHUB_REPOSITORY", "unknown")
+    run_id = os.environ.get("GITHUB_RUN_ID", "")
+    policy_repo = _policy_repo()
+    server = _gh_server()
+
+    old_link = _link_commit(policy_repo, old_sha)
+    new_link = _link_commit(policy_repo, new_sha)
+    compare_link = _slk(
+        f"{server}/{policy_repo}/compare/{old_sha}...{new_sha}",
+        "정책 변경 diff (GitHub compare)",
+    )
+    repo_link = _link_repo(repo)
+    run_link = _link_run(repo, run_id)
+
+    lines = [
+        f"🔄 *POLICY UPDATED* — {repo_link}",
+        f"정책 SHA: {old_link} → {new_link}",
+        f"{compare_link}",
+    ]
+    if run_link:
+        lines.append("")
+        lines.append(run_link)
+
+    return {
+        "_kind": "POLICY_UPDATED",
+        "attachments": [{
+            "color": "#1e7eb6",
+            "text": "\n".join(lines),
+            "mrkdwn_in": ["text"],
+        }],
+    }
+
+
 # ===== Gating logic (변경 없음) =====
 
 def has_code_change(diff_content):
-    """Diff에 코드 파일 변경이 포함되어 있는지.
-
-    "코드 파일" = markdown(.md/.markdown), lockfile, 순수 binary가 아닌 모든 파일.
-    SKILL.md v0.5 게이팅 표의 정의를 충실히 따른다.
-    """
     files = re.findall(r'^diff --git a/\S+ b/(\S+)', diff_content, re.MULTILINE)
     for path in files:
         if path.endswith(".md") or path.endswith(".markdown"):
@@ -268,7 +374,6 @@ def has_code_change(diff_content):
 
 
 def should_call_llm(deterministic_findings, diff_content):
-    """SKILL.md 2단계 게이팅 규칙."""
     if not diff_content.strip():
         return False, "empty diff"
     severities = {f.get("severity") for f in deterministic_findings}
@@ -282,7 +387,6 @@ def should_call_llm(deterministic_findings, diff_content):
 # ===== Slack send & message builders =====
 
 def post_slack(webhook_url, payload):
-    """Slack webhook으로 페이로드 전송. 실패해도 워크플로우는 계속."""
     if not webhook_url:
         print("[slack] SLACK_WEBHOOK_URL 미설정 — 알림 생략", file=sys.stderr)
         print(f"[slack] would send: {json.dumps(payload, ensure_ascii=False)[:200]}", file=sys.stderr)
@@ -302,10 +406,6 @@ def post_slack(webhook_url, payload):
 
 
 def build_slack_message(result, kind):
-    """Verdict별 Slack 메시지. 모든 식별자에 GitHub 링크 (mrkdwn `<url|text>`).
-
-    Linked: repo, commit SHA, finding location(파일:라인 범위), policy version/SHA, workflow run.
-    """
     repo = os.environ.get("GITHUB_REPOSITORY", "unknown")
     sha_full = os.environ.get("GITHUB_SHA", "")
     run_id = os.environ.get("GITHUB_RUN_ID", "")
@@ -389,8 +489,7 @@ def main():
             print(f"missing policy file: {f}", file=sys.stderr)
             sys.exit(2)
 
-    # 0. Deprecation 체크 (정책 SHA가 upstream floor 아래로 떨어지면 즉시 차단)
-    #    fail-open: 네트워크 실패·POLICY_SHA 미설정시 통과 (이 검사가 게이트를 부수지 않도록)
+    # 0. Deprecation 체크 (fail-open)
     current_policy_sha = os.environ.get("POLICY_SHA", "")
     if current_policy_sha and current_policy_sha != "unknown":
         deprecated, floor = check_deprecation(_policy_repo(), current_policy_sha)
@@ -424,6 +523,14 @@ def main():
         det_findings = json.loads(det_proc.stdout or "[]")
     except json.JSONDecodeError:
         det_findings = []
+
+    # 1.5. SHA-only swap 강등 (v0.11+) — bump PR 자기-루프 해소
+    pre_count = sum(1 for f in det_findings if f.get('severity') == 'critical')
+    det_findings = downgrade_sha_only_workflow_findings(diff_content, det_findings)
+    post_count = sum(1 for f in det_findings if f.get('severity') == 'critical')
+    if pre_count > post_count:
+        print(f"[sha-only-swap] downgraded {pre_count - post_count} critical workflow finding(s) to low",
+              file=sys.stderr)
 
     det_path = Path("/tmp/det-findings.json")
     det_path.write_text(json.dumps(det_findings))
@@ -461,7 +568,6 @@ def main():
         print(adapter_proc.stdout[:500], file=sys.stderr)
         sys.exit(2)
 
-    # gating reason을 결과에 기록 (디버깅 추적성)
     result["_gating"] = {"call_llm": call_llm, "reason": gating_reason}
 
     # 4. 결과 출력
@@ -480,6 +586,15 @@ def main():
         kind = "REVIEW" if has_high else "INFO"
         post_slack(webhook, build_slack_message(result, kind))
     # pass는 알림 없음 (noise 방지)
+
+    # 5.5. POLICY_UPDATED informational 알림 (v0.11+)
+    #      master push 이벤트에서 POLICY_REPO_SHA 변경이 감지되면 추가 발송.
+    event_name = os.environ.get("GITHUB_EVENT_NAME", "")
+    if event_name == "push":
+        bump = diff_contains_policy_bump(diff_content)
+        if bump:
+            old_sha, new_sha = bump
+            post_slack(webhook, build_policy_updated_message(old_sha, new_sha))
 
     sys.exit(1 if verdict == "block" else 0)
 

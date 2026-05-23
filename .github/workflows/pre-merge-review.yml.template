@@ -149,9 +149,51 @@ jobs:
           path: /tmp/review-result.json
           retention-days: 30
 
-      # ---------- 5단계: PR comment (PR 이벤트만) ----------
-      # block/advisory 시 PR 본문에 결과 요약 추가
-      - name: Comment on PR
+      # ---------- 5단계: inline annotations (PR diff에 라인 주석) ----------
+      # severity별 core.error/warning/notice로 finding을 GitHub annotation 시스템에
+      # 등록 → PR "Files changed" 탭에서 해당 라인 옆에 직접 표시.
+      # PR 이벤트뿐 아니라 push에서도 Annotations 패널에 노출됨.
+      - name: Emit inline annotations
+        if: always()
+        # <FIXME> actions/github-script v7 SHA로 교체
+        uses: actions/github-script@<FIXME-GITHUB-SCRIPT-SHA>
+        with:
+          script: |
+            const fs = require('fs');
+            let result;
+            try {
+              result = JSON.parse(fs.readFileSync('/tmp/review-result.json', 'utf8'));
+            } catch (e) {
+              core.warning(`No review result to annotate: ${e.message}`);
+              return;
+            }
+            for (const f of (result.findings || [])) {
+              const loc = f.location || '';
+              const m = loc.match(/^([^:]+?)(?::(\d+)(?:-(\d+))?)?$/);
+              if (!m) continue;
+              const [, file, startLine, endLine] = m;
+              if (!file) continue;
+              const props = { file, title: `[${f.severity}] ${f.category}` };
+              if (startLine) {
+                props.startLine = parseInt(startLine, 10);
+                props.endLine = endLine ? parseInt(endLine, 10) : parseInt(startLine, 10);
+              }
+              const msg = (f.description || '').slice(0, 400);
+              if (f.severity === 'critical' || f.severity === 'high') {
+                core.error(msg, props);
+              } else if (f.severity === 'medium') {
+                core.warning(msg, props);
+              } else {
+                core.notice(msg, props);
+              }
+            }
+
+      # ---------- 6단계: PR body summary + PR comment (PR 이벤트만) ----------
+      # block/advisory 시:
+      #   1) PR body 상단에 delimited 요약 블록 prepend (PR 목록에서도 즉시 가시)
+      #   2) PR 코멘트로 상세 결과 게시
+      # 두 번 이상 실행되어도 PR body 블록은 idempotent 교체 (delimiter로 식별)
+      - name: Update PR body + comment
         if: github.event_name == 'pull_request' && always()
         # <FIXME> actions/github-script v7 SHA로 교체
         uses: actions/github-script@<FIXME-GITHUB-SCRIPT-SHA>
@@ -165,7 +207,7 @@ jobs:
               core.warning(`Could not read review result: ${e.message}`);
               return;
             }
-            if (result.verdict === 'pass') return;  // pass는 comment 안 함
+            if (result.verdict === 'pass') return;  // pass는 comment·body 갱신 모두 안 함
 
             // ---- 스마트 링크 helper (markdown) ----
             const server = context.serverUrl || 'https://github.com';
@@ -173,6 +215,7 @@ jobs:
             const policyRepo = process.env.POLICY_REPO || 'sapadmin-df/changeguard';
             const headSha = context.payload.pull_request?.head?.sha || context.sha;
             const runId = context.runId;
+            const prNumber = context.issue.number;
 
             const mdLink = (url, text) => `[${text}](${url})`;
             const linkSha = (r, sha) => sha
@@ -191,7 +234,6 @@ jobs:
               return mdLink(url, `\`${loc}\``);
             };
 
-            // ---- 본문 ----
             const emoji = result.verdict === 'block' ? '🚨' : '⚠️';
             const linkPolicyVer = mdLink(
               `${server}/${policyRepo}/blob/${result.policy_sha}/VERSION`,
@@ -203,6 +245,46 @@ jobs:
               'workflow run'
             );
 
+            // ---- (1) PR body 상단 요약 블록 (idempotent) ----
+            const SUMMARY_START = '<!-- pre-merge-summary-start -->';
+            const SUMMARY_END = '<!-- pre-merge-summary-end -->';
+            const severityCounts = {};
+            for (const f of (result.findings || [])) {
+              const s = f.severity || 'unknown';
+              severityCounts[s] = (severityCounts[s] || 0) + 1;
+            }
+            const sevSummary = ['critical','high','medium','low'].map(
+              s => severityCounts[s] ? `${severityCounts[s]} ${s}` : null
+            ).filter(Boolean).join(', ') || '(no findings)';
+
+            const summaryLine = `> ${emoji} **[Pre-Merge ${result.verdict}]** · ${sevSummary} · policy ${linkPolicyVer} (${linkPolicySha}) · ${linkRun}`;
+            const summaryBlock = `${SUMMARY_START}\n${summaryLine}\n${SUMMARY_END}`;
+
+            try {
+              const pr = await github.rest.pulls.get({
+                owner: context.repo.owner, repo: context.repo.repo,
+                pull_number: prNumber,
+              });
+              let existingBody = pr.data.body || '';
+              const startIdx = existingBody.indexOf(SUMMARY_START);
+              const endIdx = existingBody.indexOf(SUMMARY_END);
+              let cleanBody = existingBody;
+              if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+                cleanBody = (existingBody.slice(0, startIdx)
+                              + existingBody.slice(endIdx + SUMMARY_END.length)).replace(/^\n+/, '');
+              }
+              const newBody = `${summaryBlock}\n\n${cleanBody}`;
+              if (newBody !== existingBody) {
+                await github.rest.pulls.update({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  pull_number: prNumber, body: newBody,
+                });
+              }
+            } catch (e) {
+              core.warning(`PR body update failed: ${e.message}`);
+            }
+
+            // ---- (2) PR comment ----
             const findings = (result.findings || []).slice(0, 5).map(f =>
               `- **[${f.severity}]** \`${f.category}\` @ ${linkFile(repo, headSha, f.location)} — ${f.description}`
             ).join('\n');
@@ -221,8 +303,6 @@ jobs:
             ].join('\n');
 
             await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: body,
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: prNumber, body: body,
             });
