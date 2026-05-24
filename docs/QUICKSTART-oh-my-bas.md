@@ -53,9 +53,15 @@ git checkout -b add-changeguard
 
 mkdir -p .github/workflows
 CG_SHA="<Step 0에서 확보한 changeguard SHA>"
-curl -fsSL \
-  "https://raw.githubusercontent.com/sapadmin-df/changeguard/${CG_SHA}/.github/workflows/pre-merge-review.yml.template" \
+BASE="https://raw.githubusercontent.com/sapadmin-df/changeguard/${CG_SHA}/.github/workflows"
+
+# (a) 게이트
+curl -fsSL "$BASE/pre-merge-review.yml.template" \
   -o .github/workflows/pre-merge-review.yml
+
+# (b) 갱신 자동화 (v0.12+) — 강력 권장. 매주 정책 SHA를 폴링해 bump PR 생성
+curl -fsSL "$BASE/policy-bump-watcher.yml.template" \
+  -o .github/workflows/policy-bump-watcher.yml
 ```
 
 ## Step 2 — FIXME 채우기
@@ -65,6 +71,7 @@ curl -fsSL \
 git clone https://github.com/sapadmin-df/changeguard.git ../changeguard
 gh auth login
 ../changeguard/scripts/pin-actions.sh --apply .github/workflows/pre-merge-review.yml
+../changeguard/scripts/pin-actions.sh --apply .github/workflows/policy-bump-watcher.yml
 ```
 
 그리고 워크플로우 파일에서 직접 채울 것:
@@ -75,7 +82,9 @@ gh auth login
 
 ```bash
 # 모든 uses:가 SHA로 고정됐는지, FIXME가 남았는지 확인
-../changeguard/scripts/verify-workflow-pins.sh .github/workflows/pre-merge-review.yml
+../changeguard/scripts/verify-workflow-pins.sh \
+  .github/workflows/pre-merge-review.yml \
+  .github/workflows/policy-bump-watcher.yml
 # 기대 출력: "All workflow uses: are pinned to commit SHA. OK."
 ```
 
