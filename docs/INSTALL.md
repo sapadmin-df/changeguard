@@ -16,19 +16,28 @@ pre-merge-review 워크플로우를 설치하는 절차다.
 
 ## 설치 단계
 
-### 1. 워크플로우 템플릿 복사
+### 1. 워크플로우 템플릿 복사 (2개)
 
 ```bash
-# changeguard에서 템플릿 가져오기 — SHA 고정으로 fetch
+# changeguard에서 두 템플릿을 SHA 고정으로 fetch
 POLICY_SHA="<changeguard의 commit SHA>"
-curl -fsSL \
-  "https://raw.githubusercontent.com/sapadmin-df/changeguard/${POLICY_SHA}/.github/workflows/pre-merge-review.yml.template" \
+BASE="https://raw.githubusercontent.com/sapadmin-df/changeguard/${POLICY_SHA}/.github/workflows"
+
+# (a) 게이트 — incoming diff 검문
+curl -fsSL "$BASE/pre-merge-review.yml.template" \
   -o .github/workflows/pre-merge-review.yml
+
+# (b) 갱신 자동화 — 매주 정책 SHA를 폴링해 bump PR 생성 (v0.12+)
+curl -fsSL "$BASE/policy-bump-watcher.yml.template" \
+  -o .github/workflows/policy-bump-watcher.yml
 ```
+
+(b)는 선택이지만 강력 권장 — 없으면 정책 SHA 갱신을 사람이 수동 추적해야 한다.
+(a)의 v0.10+ deprecation 알림이 (b)가 만든 PR을 찾아 자동 첨부한다.
 
 ### 2. FIXME 채우기
 
-워크플로우 파일을 열면 `<FIXME-...>` 플레이스홀더가 있다. 두 가지 방법:
+두 워크플로우 모두 `<FIXME-...>` 플레이스홀더가 있다.
 
 **자동:** changeguard의 보조 스크립트 사용
 
@@ -36,6 +45,7 @@ curl -fsSL \
 # changeguard clone 후
 gh auth login  # gh CLI 인증
 ./changeguard/scripts/pin-actions.sh --apply .github/workflows/pre-merge-review.yml
+./changeguard/scripts/pin-actions.sh --apply .github/workflows/policy-bump-watcher.yml
 ```
 
 **수동:** GitHub Marketplace에서 각 action의 최신 release tag를 찾고, 해당 tag의 commit SHA 조회
@@ -45,16 +55,17 @@ gh auth login  # gh CLI 인증
 gh api /repos/actions/checkout/git/refs/tags/v4.1.7 --jq .object.sha
 ```
 
-또한 다음 두 변수도 채워야 한다:
+또한 `pre-merge-review.yml`에서 다음 두 변수도 채워야 한다 (watcher는 자동 감지):
 
-- `POLICY_REPO`: 정책 repo의 `owner/name`
+- `POLICY_REPO`: 정책 repo의 `owner/name` (기본 `sapadmin-df/changeguard`)
 - `POLICY_REPO_SHA`: 정책 repo의 40자 commit SHA
 
 ### 3. 검증
 
 ```bash
 bash changeguard/scripts/verify-workflow-pins.sh \
-  .github/workflows/pre-merge-review.yml
+  .github/workflows/pre-merge-review.yml \
+  .github/workflows/policy-bump-watcher.yml
 # 출력: "All workflow uses: are pinned to commit SHA. OK."
 ```
 
