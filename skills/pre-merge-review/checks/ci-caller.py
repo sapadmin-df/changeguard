@@ -336,15 +336,15 @@ def build_policy_updated_message(old_sha, new_sha):
     new_link = _link_commit(policy_repo, new_sha)
     compare_link = _slk(
         f"{server}/{policy_repo}/compare/{old_sha}...{new_sha}",
-        "정책 변경 diff (GitHub compare)",
+        "변경 내용",
     )
     repo_link = _link_repo(repo)
     run_link = _link_run(repo, run_id)
 
+    # SHA bump 1줄에 compare 링크를 inline으로 합쳐 한 줄에 모든 정보
     lines = [
         f"🔄 *POLICY UPDATED* — {repo_link}",
-        f"정책 SHA: {old_link} → {new_link}",
-        f"{compare_link}",
+        f"정책 SHA: {old_link} → {new_link} · {compare_link}",
     ]
     if run_link:
         lines.append("")
@@ -677,20 +677,29 @@ def main():
         Path(args.output).write_text(output_text)
     print(output_text)
 
-    # 5. Slack 알림 디스패치
+    # 5. Slack 알림 디스패치 (v0.14.1+: PR 이벤트는 PR comment/Checks ❌가 담당,
+    #    Slack은 default branch push의 *결정적 사건*에만 보내 noise 절반 감소)
     webhook = os.environ.get("SLACK_WEBHOOK_URL", "")
     verdict = result["verdict"]
-    if verdict == "block":
-        post_slack(webhook, build_slack_message(result, "ALERT"))
-    elif verdict == "advisory":
-        has_high = any(f.get("severity") in {"critical", "high"} for f in result["findings"])
-        kind = "REVIEW" if has_high else "INFO"
-        post_slack(webhook, build_slack_message(result, kind))
-    # pass는 알림 없음 (noise 방지)
-
-    # 5.5. POLICY_UPDATED informational 알림 (v0.11+)
-    #      master push 이벤트에서 POLICY_REPO_SHA 변경이 감지되면 추가 발송.
     event_name = os.environ.get("GITHUB_EVENT_NAME", "")
+    # PR 이벤트는 Slack ALERT 생략 — 같은 변경이 master push에서 다시 검사됨.
+    # 다만 workflow_dispatch나 다른 이벤트는 그대로 알림 (watcher bump branch 검증 등).
+    slack_enabled = (event_name != "pull_request")
+    if not slack_enabled:
+        print(f"[slack] event={event_name} — PR 이벤트는 Slack 생략 "
+              f"(PR comment + Checks ❌가 담당)", file=sys.stderr)
+
+    if slack_enabled:
+        if verdict == "block":
+            post_slack(webhook, build_slack_message(result, "ALERT"))
+        elif verdict == "advisory":
+            has_high = any(f.get("severity") in {"critical", "high"} for f in result["findings"])
+            kind = "REVIEW" if has_high else "INFO"
+            post_slack(webhook, build_slack_message(result, kind))
+        # pass는 알림 없음 (noise 방지)
+
+    # 5.5. POLICY_UPDATED informational 알림
+    #      master push 이벤트에서 POLICY_REPO_SHA 변경이 감지되면 추가 발송.
     if event_name == "push":
         bump = diff_contains_policy_bump(diff_content)
         if bump:
