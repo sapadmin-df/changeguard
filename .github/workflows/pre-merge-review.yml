@@ -51,12 +51,6 @@ jobs:
       contents: read
       pull-requests: write   # PR comment + body 갱신 + bump PR 검색
     timeout-minutes: 10
-    env:
-      POLICY_REPO: ${{ inputs.policy_repo }}
-      # POLICY_REPO_SHA는 호출자 측 `uses: ...@SHA` 에서 자동 결정되어,
-      # actions/checkout에서 ref: ${{ github.workflow_sha }} 또는 명시적 inputs로 전달.
-      # 단 GitHub Actions의 reusable workflow는 호출 시 사용된 SHA를 GITHUB_WORKFLOW_SHA
-      # env에 자동 제공. 이 env는 우리가 export하여 ci-caller가 사용.
     steps:
       # ---------- 0단계: 정책 SHA 결정 (호출자 `uses: ...@SHA`에서 자동) ----------
       # github.workflow_sha = 이 reusable workflow를 호출한 SHA — 곧 POLICY_REPO_SHA.
@@ -81,23 +75,30 @@ jobs:
           echo "::notice::Policy SHA = $POLICY_SHA (from workflow_sha)"
 
       # ---------- 1단계: changeguard 정책 코드 checkout (SHA pin 강제) ----------
+      # workflow_call inputs/outputs를 step-level로 직접 사용 (workflow-level env: 가
+      # reusable workflow의 step scope에서 어색하게 평가되는 경우 회피).
       # actions/checkout v6.0.2
       - name: Checkout policy code at pinned SHA
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          repository: ${{ env.POLICY_REPO }}
-          ref: ${{ env.POLICY_REPO_SHA }}
+          repository: ${{ inputs.policy_repo }}
+          ref: ${{ steps.policy.outputs.policy_sha }}
           path: .policy
 
       - name: Verify policy SHA matches expectation
+        env:
+          POLICY_REPO_IN: ${{ inputs.policy_repo }}
+          EXPECTED_SHA: ${{ steps.policy.outputs.policy_sha }}
         run: |
           actual=$(git -C .policy rev-parse HEAD)
-          if [ "$actual" != "$POLICY_REPO_SHA" ]; then
-            echo "::error::Policy SHA mismatch: expected $POLICY_REPO_SHA, got $actual"
+          if [ "$actual" != "$EXPECTED_SHA" ]; then
+            echo "::error::Policy SHA mismatch: expected $EXPECTED_SHA, got $actual"
             exit 1
           fi
+          echo "POLICY_REPO=$POLICY_REPO_IN" >> "$GITHUB_ENV"
+          echo "POLICY_REPO_SHA=$actual"     >> "$GITHUB_ENV"
           echo "POLICY_VERSION=$(cat .policy/VERSION)" >> "$GITHUB_ENV"
-          echo "POLICY_SHA=$actual" >> "$GITHUB_ENV"
+          echo "POLICY_SHA=$actual"          >> "$GITHUB_ENV"
 
       # ---------- 2단계: 소비자 repo checkout (incoming diff 계산용) ----------
       # actions/checkout v6.0.2
