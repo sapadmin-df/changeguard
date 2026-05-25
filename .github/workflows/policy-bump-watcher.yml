@@ -29,6 +29,10 @@ name: policy-bump-watcher (reusable)
 on:
   workflow_call:
     inputs:
+      policy_sha:
+        description: "현재 pin된 정책 SHA — 호출자가 'uses: ...@<SHA>' 와 동일 값을 전달."
+        type: string
+        required: true
       policy_repo:
         description: "정책 repo (기본 sapadmin-df/changeguard)"
         type: string

@@ -27,6 +27,10 @@ name: pre-merge-review (reusable)
 on:
   workflow_call:
     inputs:
+      policy_sha:
+        description: "정책 SHA — 호출자가 'uses: ...@<SHA>' 의 SHA와 *같은 값*을 여기에 명시. github.workflow_sha 는 호출자 commit 을 가리키므로 정책 SHA로 사용할 수 없음 (GitHub Actions 제약). watcher가 두 값을 동시에 갱신함."
+        type: string
+        required: true
       policy_repo:
         description: "정책 repo (기본 sapadmin-df/changeguard). 사실상 변경 불필요."
         type: string
@@ -52,27 +56,26 @@ jobs:
       pull-requests: write   # PR comment + body 갱신 + bump PR 검색
     timeout-minutes: 10
     steps:
-      # ---------- 0단계: 정책 SHA 결정 (호출자 `uses: ...@SHA`에서 자동) ----------
-      # github.workflow_sha = 이 reusable workflow를 호출한 SHA — 곧 POLICY_REPO_SHA.
-      # 호출자가 `uses: owner/repo/.github/workflows/foo.yml@<SHA>` 라고 적으면
-      # 그 <SHA> 가 그대로 github.workflow_sha. branch/tag로 호출하면 그 ref의 SHA.
-      - name: Resolve policy SHA from workflow ref
+      # ---------- 0단계: 정책 SHA 검증 (호출자가 명시 전달) ----------
+      # GitHub Actions의 reusable workflow는 "내가 어떤 SHA로 호출됐는가"를 자동
+      # 알려주지 않음. github.workflow_sha 는 호출자(consumer) commit을 가리킴.
+      # 그래서 호출자가 inputs.policy_sha 로 명시 전달해야 한다 — watcher가
+      # 'uses: ...@<SHA>' 와 'with: policy_sha: <SHA>' 두 곳을 동시에 sed로 갱신.
+      - name: Validate policy SHA input
         id: policy
+        env:
+          INPUT_POLICY_SHA: ${{ inputs.policy_sha }}
         run: |
-          # github.workflow_sha = 호출자 'uses: ...@<SHA>' 의 SHA.
-          # 비어있으면 호출자가 mutable ref(branch/tag)로 호출한 것 — supply chain 위반.
-          POLICY_SHA="${{ github.workflow_sha }}"
-          if [ -z "$POLICY_SHA" ]; then
-            echo "::error::github.workflow_sha 가 비어있음 — reusable workflow를 'uses: owner/repo/.../foo.yml@<40-hex-SHA>' 형식으로 호출하세요. branch/tag 금지."
+          if [ -z "$INPUT_POLICY_SHA" ]; then
+            echo "::error::inputs.policy_sha 가 비어있음 — 호출자 워크플로우에 with: { policy_sha: '<40-hex>' } 명시 필요."
             exit 1
           fi
-          if ! [[ "$POLICY_SHA" =~ ^[a-f0-9]{40}$ ]]; then
-            echo "::error::policy SHA 형식 부적합 ($POLICY_SHA) — 40자 hex만 허용"
+          if ! [[ "$INPUT_POLICY_SHA" =~ ^[a-f0-9]{40}$ ]]; then
+            echo "::error::policy_sha 형식 부적합 ($INPUT_POLICY_SHA) — 40자 hex만 허용"
             exit 1
           fi
-          echo "POLICY_REPO_SHA=$POLICY_SHA" >> "$GITHUB_ENV"
-          echo "policy_sha=$POLICY_SHA"      >> "$GITHUB_OUTPUT"
-          echo "::notice::Policy SHA = $POLICY_SHA (from workflow_sha)"
+          echo "policy_sha=$INPUT_POLICY_SHA" >> "$GITHUB_OUTPUT"
+          echo "::notice::Policy SHA = $INPUT_POLICY_SHA"
 
       # ---------- 1단계: changeguard 정책 코드 checkout (SHA pin 강제) ----------
       # workflow_call inputs/outputs를 step-level로 직접 사용 (workflow-level env: 가
