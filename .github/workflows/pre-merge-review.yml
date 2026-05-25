@@ -141,19 +141,22 @@ jobs:
           echo "incoming_sha=$HEAD_SHA" >> "$GITHUB_ENV"
 
       # ---------- 4단계: pre-merge review 실행 (ci-caller.py) ----------
+      # POLICY_PATH 를 절대 경로로 전달 — working-directory: .consumer 와 무관하게
+      # ci-caller.py 가 정책 파일들을 찾을 수 있도록.
       - name: Run pre-merge review
         id: review
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          POLICY_PATH: .policy
+          POLICY_PATH: ${{ github.workspace }}/.policy
           BASE_REF: ${{ env.base_sha }}
           INCOMING_REF: ${{ env.incoming_sha }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         working-directory: .consumer
         run: |
-          python3 ../.policy/skills/pre-merge-review/checks/ci-caller.py \
+          python3 "$POLICY_PATH/skills/pre-merge-review/checks/ci-caller.py" \
             --diff /tmp/incoming.diff \
+            --policy-path "$POLICY_PATH" \
             --output /tmp/review-result.json
         continue-on-error: false
 
