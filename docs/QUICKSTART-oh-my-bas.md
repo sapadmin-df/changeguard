@@ -1,7 +1,4 @@
-# Quickstart — oh-my-bas에 changeguard 적용
-
-`dfocus-sapsol/oh-my-bas`에 changeguard pre-merge-review를 적용하는 구체 절차.
-일반 가이드는 `INSTALL.md` 참조.
+# Quickstart — oh-my-bas (또는 다른 소비 repo)에 changeguard 적용
 
 ## 권한 구성 (이 케이스)
 
@@ -17,118 +14,73 @@
 
 changeguard가 public이므로 oh-my-bas의 Action은 토큰 없이 정책을 내려받는다.
 
-## Step 0 — changeguard repo 생성 (sapadmin-df 계정)
+## Step 0 — changeguard repo 준비 (한 번만, sapadmin-df 계정)
 
-```bash
-# 로컬에서 scaffold 압축 해제
-cd ~/Downloads
-tar -xzf changeguard-v1.0.tar.gz
-cd changeguard
+이미 `sapadmin-df/changeguard` 가 존재하고 `protect-main` ruleset이 설정되어
+있다면 건너뛰기. 처음이면 changeguard `README.md` 의 "브랜치 보호 & 커밋 서명"
+참조.
 
-# repo 루트에 내용물이 바로 오도록 push
-git init
-git add -A                    # .github 포함 전부 — 빼지 않는다
-git commit -m "changeguard: pre-merge-review gate v0.9"
-git branch -M main
-git remote add origin https://github.com/sapadmin-df/changeguard.git
-git push -u origin main
-
-# 이 commit의 SHA 확보 — 다음 단계에서 사용
-git rev-parse HEAD
-```
-
-push 후 GitHub에서 sapadmin-df → changeguard → Settings:
-- **Settings → Collaborators**: wschoe2020을 **Read** 권한으로 추가
 - **Settings → Rules → Rulesets**: `main` 보호 ruleset `protect-main` — 서명 필수,
   PR + Code Owner 승인, CI status check, force-push/삭제 차단. 규칙 상세는
   changeguard `README.md`의 "브랜치 보호 & 커밋 서명" 참조
 
-## Step 1 — oh-my-bas에 워크플로우 추가 (wschoe2020 계정)
+## Step 1 — oh-my-bas에 자동 온보딩 (wschoe2020 계정)
 
 ```bash
-# oh-my-bas clone (또는 기존 작업 디렉터리)
-git clone https://github.com/dfocus-sapsol/oh-my-bas.git
+git clone git@github.com:dfocus-sapsol/oh-my-bas.git
 cd oh-my-bas
-git checkout -b add-changeguard
 
-mkdir -p .github/workflows
-CG_SHA="<Step 0에서 확보한 changeguard SHA>"
-BASE="https://raw.githubusercontent.com/sapadmin-df/changeguard/${CG_SHA}/.github/workflows"
-
-# (a) 게이트
-curl -fsSL "$BASE/pre-merge-review.yml.template" \
-  -o .github/workflows/pre-merge-review.yml
-
-# (b) 갱신 자동화 (v0.12+) — 강력 권장. 매주 정책 SHA를 폴링해 bump PR 생성
-curl -fsSL "$BASE/policy-bump-watcher.yml.template" \
-  -o .github/workflows/policy-bump-watcher.yml
+# 한 명령으로 끝남 — default branch(master) 자동 감지 + 두 워크플로우 생성 + PR 생성
+bash <(curl -fsSL https://raw.githubusercontent.com/sapadmin-df/changeguard/main/scripts/bootstrap-consumer.sh)
 ```
 
-## Step 2 — FIXME 채우기
+(사전에 dry-run으로 검토:)
 
 ```bash
-# changeguard를 옆에 clone하여 보조 스크립트 사용
-git clone https://github.com/sapadmin-df/changeguard.git ../changeguard
-gh auth login
-../changeguard/scripts/pin-actions.sh --apply .github/workflows/pre-merge-review.yml
-../changeguard/scripts/pin-actions.sh --apply .github/workflows/policy-bump-watcher.yml
+bash <(curl -fsSL https://raw.githubusercontent.com/sapadmin-df/changeguard/main/scripts/bootstrap-consumer.sh) --dry-run
 ```
 
-그리고 워크플로우 파일에서 직접 채울 것:
-- `POLICY_REPO_SHA`: `<Step 0의 changeguard SHA>` (기본값 0000...을 교체)
-- `POLICY_REPO`는 이미 `sapadmin-df/changeguard`로 설정됨 — 확인만
+생성되는 파일 2개 (각 5-10줄):
 
-## Step 3 — 검증
+- `.github/workflows/pre-merge-review.yml` — 게이트
+- `.github/workflows/policy-bump-watcher.yml` — 정책 SHA 자동 갱신
+
+## Step 2 — secrets 등록 (값은 prompt에서 직접 입력)
 
 ```bash
-# 모든 uses:가 SHA로 고정됐는지, FIXME가 남았는지 확인
-../changeguard/scripts/verify-workflow-pins.sh \
-  .github/workflows/pre-merge-review.yml \
-  .github/workflows/policy-bump-watcher.yml
-# 기대 출력: "All workflow uses: are pinned to commit SHA. OK."
+# Anthropic API key — 발급: https://console.anthropic.com/settings/keys
+gh secret set ANTHROPIC_API_KEY --repo dfocus-sapsol/oh-my-bas
+
+# Slack webhook — 발급: https://api.slack.com/messaging/webhooks
+gh secret set SLACK_WEBHOOK_URL --repo dfocus-sapsol/oh-my-bas
 ```
 
-`POLICY_REPO_SHA`가 아직 0000...이면 위 스크립트는 이를 잡지 못하므로(SHA 형식은
-맞음) 육안으로 한 번 더 확인한다.
-
-## Step 4 — secrets 등록 (oh-my-bas)
-
-oh-my-bas → Settings → Secrets and variables → Actions:
-
-| Secret | 값 | 필수 |
+| Secret | 용도 | 필수 |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Claude API 키 | ✓ |
-| `SLACK_WEBHOOK_URL` | Slack incoming webhook | 선택 |
+| `ANTHROPIC_API_KEY` | LLM 분석 | 선택 (없으면 결정론만, advisory) |
+| `SLACK_WEBHOOK_URL` | verdict 알림 | 선택 (없으면 stdout만) |
 
-`SLACK_WEBHOOK_URL` 미등록 시 알림은 워크플로우 로그(stderr)로만 출력된다.
-`ANTHROPIC_API_KEY` 미등록 시 LLM 단계를 건너뛰고 결정론 검사만 수행하며,
-그 사실이 medium meta finding으로 기록되어 advisory verdict가 된다.
+## Step 3 — PR review·merge
 
-## Step 5 — 첫 실행 + PR
+Step 1에서 bootstrap이 만든 PR이 사실상 *자기 자신을 검문*합니다 — 워크플로우 추가는
+정책상 critical으로 마킹되지만, v0.11+ 의 SHA-only swap 강등 + v0.14+ 의
+자동 검증으로 안전하게 처리됩니다. admin 승인으로 merge.
 
-```bash
-git add .github/workflows/pre-merge-review.yml
-git commit -m "ci: add changeguard pre-merge-review"
-git push -u origin add-changeguard
-# GitHub에서 PR 생성 → 이 PR 자체가 첫 워크플로우 실행을 트리거
-```
+이후 모든 push/PR이 자동 검문됩니다.
 
-첫 실행에서 확인:
-- "Sanity check — no floating refs" 통과 (FIXME 모두 해소됐는지)
-- "Verify policy SHA matches expectation" 통과 (SHA mismatch 없는지)
-- "Run pre-merge review" 출력에 verdict, policy_version, policy_sha 표시
+## 정책 갱신 시 (이후 운영)
 
-## changeguard 정책 갱신 시 (이후 운영)
+`policy-bump-watcher.yml` 가 매주 월요일 09:00 UTC 에 changeguard upstream main 의
+최신 SHA를 폴링해 갱신 PR을 자동 생성합니다. PR body 에는 변경된 commit 목록 +
+GitHub compare URL + pre-flight fixture 검증 결과가 자동 첨부됩니다.
 
-changeguard에 새 commit이 생겨도 oh-my-bas는 자동으로 따라가지 않는다.
-적용하려면 oh-my-bas에서 워크플로우의 `POLICY_REPO_SHA`를 새 SHA로 바꾸는
-PR을 올린다. 이 PR 자체가 pre-merge-review를 거치므로 자기 검증된다.
+사람이 review·merge만 하면 됩니다 (자동 merge 안 함 — 정책 변경은 *명시적*).
 
 ## 트러블슈팅
 
-자세한 내용은 `INSTALL.md`의 트러블슈팅 섹션 참조. oh-my-bas 특이사항:
+자세한 내용은 `INSTALL.md` 의 트러블슈팅 섹션 참조. oh-my-bas 특이사항:
 
-- **"Policy SHA mismatch"**: `POLICY_REPO_SHA`가 changeguard의 실제 commit과
-  다름. Step 0의 `git rev-parse HEAD` 결과와 워크플로우 값을 재대조.
-- **changeguard checkout 실패**: public repo이므로 토큰 문제는 아님. SHA가
-  존재하지 않는 commit을 가리키는지 확인 (force push로 사라진 SHA 등).
+- **이미 v0.15 이하로 설치된 경우**: `docs/UPGRADING.md` 의 마이그레이션 가이드
+  참조. bootstrap 스크립트를 실행하면 기존 파일을 덮어쓸지 묻습니다.
+- **default branch가 `master`임에도 동작**: bootstrap이 자동 감지합니다 — 추가
+  손 안 댐.

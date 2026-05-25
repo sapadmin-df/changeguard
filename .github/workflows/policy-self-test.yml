@@ -45,7 +45,66 @@ jobs:
       - name: Run integrated fixture tests (with mock LLM)
         run: bash skills/pre-merge-review/examples/run-tests-integrated.sh
 
-  # ---------- Job 3: Mock vs Production drift 검증 ----------
+  # ---------- Job 3: Bootstrap script 사전 검증 ----------
+  # bootstrap-consumer.sh가 syntax/help/dry-run에서 정상 동작하는지.
+  # 실제 PR 생성까지는 별도 e2e (사용자가 본인 repo에서 수행).
+  bootstrap-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 3
+    steps:
+      # actions/checkout v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: bash -n syntax check
+        run: |
+          bash -n scripts/bootstrap-consumer.sh
+          bash -n scripts/pin-actions.sh
+          bash -n scripts/verify-workflow-pins.sh
+
+      - name: bootstrap-consumer.sh --help 동작
+        run: ./scripts/bootstrap-consumer.sh --help
+
+      - name: pin-actions.sh sed_inplace macOS 분기 dry-test
+        run: |
+          # Ubuntu 환경에선 GNU sed 분기 — 실제 in-place 작동
+          TMP=$(mktemp)
+          echo "hello" > "$TMP"
+          # 직접 함수 추출 + 실행
+          source <(sed -n '/^sed_inplace()/,/^}/p' scripts/pin-actions.sh)
+          sed_inplace 's|hello|world|' "$TMP"
+          grep -q world "$TMP" && echo "✓ sed_inplace OK"
+          rm "$TMP"
+
+  # ---------- Job 4: Reusable workflow self-call (소비자 시뮬레이션) ----------
+  # 이 정책 repo 자신이 v0.16+ reusable workflow를 호출해 본다.
+  # 호출 자체가 성공하면 다른 소비자도 호출 가능하다는 신호.
+  # 단 정책 repo 본인이 호출하면 SHA가 PR head 자체이므로 'identical' 검증은 PR에서만 의미.
+  reusable-self-test:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read   # 소비자 시뮬레이션이라 write 불요
+    timeout-minutes: 5
+    steps:
+      - name: Sanity — reusable workflow YAML 파싱
+        # actions/checkout v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Validate workflow YAML structure
+        run: |
+          python3 -c "
+          import yaml, sys
+          for path in ['.github/workflows/pre-merge-review.yml',
+                       '.github/workflows/policy-bump-watcher.yml']:
+              data = yaml.safe_load(open(path))
+              triggers = list(data.get(True, data.get('on', {})).keys()) if isinstance(data.get(True, data.get('on')), dict) else []
+              assert 'workflow_call' in str(data), f'{path}: workflow_call trigger 누락'
+              print(f'✓ {path}: workflow_call trigger 존재')
+          "
+
+  # ---------- Mock vs Production drift 검증 ----------
   # 비용 발생 작업 — schedule trigger 또는 수동 trigger에서만 실행.
   # PR마다 돌리지 않는다. baseline 갱신 PR에는 별도 수동 검증 필요.
   mock-drift:

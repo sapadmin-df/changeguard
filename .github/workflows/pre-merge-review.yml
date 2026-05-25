@@ -1,162 +1,173 @@
-# changeguard pre-merge-review workflow — 대상 repo용 템플릿
+# changeguard pre-merge-review — Reusable workflow (v0.16+)
 #
 # 정책 본부: https://github.com/sapadmin-df/changeguard (public)
 #
-# 설치 절차:
-#   1. 대상 repo의 .github/workflows/pre-merge-review.yml 로 복사
-#   2. <FIXME> 표시된 모든 부분 채우기:
-#      - POLICY_REPO_SHA: changeguard의 full commit SHA (40자, branch/tag 금지)
-#      - actions/checkout 등 SHA pin: changeguard의 scripts/pin-actions.sh로 채우기
-#   3. secrets 등록:
-#      - ANTHROPIC_API_KEY: Claude API 키 (필수)
-#      - SLACK_WEBHOOK_URL: 알림용 Slack incoming webhook (선택)
+# 사용 방법 (소비자 측):
+#   소비자 repo의 .github/workflows/pre-merge-review.yml 에 다음과 같이 작성:
 #
-#   참고: changeguard는 public이므로 정책 repo 접근에 토큰이 필요 없습니다.
-#   (private 전환 시에만 POLICY_REPO_READ_TOKEN secret + checkout의 token: 줄 필요)
+#     name: pre-merge-review
+#     on:
+#       push: { branches: [main] }    # 또는 [master], [develop] 등
+#       pull_request: {}
+#     jobs:
+#       review:
+#         uses: sapadmin-df/changeguard/.github/workflows/pre-merge-review.yml@<SHA>
+#         secrets:
+#           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+#           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 #
-# 갱신 정책:
-#   - changeguard의 새 commit을 받아들이려면 POLICY_REPO_SHA를 *명시적으로* 갱신
-#   - actions/checkout 등의 SHA도 *명시적으로* 갱신
-#   - floating ref (@main, @v4 등)는 supply chain 공격의 직접 통로이므로 사용 금지
-#   - changeguard의 verify-workflow-pins.sh 스크립트로 SHA pinning을 사후 검증 가능
+#   소비자가 작성할 분량은 5-10줄. 모든 게이트 로직은 이 reusable workflow 안에.
+#   "uses: ...@<SHA>" 의 SHA는 changeguard main의 commit SHA — 명시적 갱신만 허용
+#   (mutable tag/branch 금지). watcher가 매주 갱신 PR을 제안.
+#
+# 호환성: v0.15 이전 .template 방식 소비자는 docs/UPGRADING.md 참조.
 
-name: pre-merge-review
+name: pre-merge-review (reusable)
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [release]
+  workflow_call:
+    inputs:
+      policy_repo:
+        description: "정책 repo (기본 sapadmin-df/changeguard). 사실상 변경 불필요."
+        type: string
+        required: false
+        default: "sapadmin-df/changeguard"
+    secrets:
+      ANTHROPIC_API_KEY:
+        description: "Claude API 키 — 없으면 결정론 검사만 수행."
+        required: false
+      SLACK_WEBHOOK_URL:
+        description: "Slack incoming webhook — 없으면 stdout만."
+        required: false
 
-# concurrency: 같은 ref의 연속 push 시 이전 실행 취소 (비용 절약)
 concurrency:
-  group: pre-merge-review-${{ github.ref }}
+  group: pre-merge-review-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  # changeguard 정책 본부 (public)
-  POLICY_REPO: "sapadmin-df/changeguard"
-  # <FIXME> changeguard의 full commit SHA로 교체 (40자, branch/tag 금지)
-  #         첫 push 후 `git rev-parse HEAD` 또는 GitHub commits 페이지에서 확인
-  POLICY_REPO_SHA: "0000000000000000000000000000000000000000"
 
 jobs:
   review:
     runs-on: ubuntu-latest
     permissions:
-      # 최소 권한 원칙
       contents: read
-      pull-requests: read
+      pull-requests: write   # PR comment + body 갱신 + bump PR 검색
     timeout-minutes: 10
+    env:
+      POLICY_REPO: ${{ inputs.policy_repo }}
+      # POLICY_REPO_SHA는 호출자 측 `uses: ...@SHA` 에서 자동 결정되어,
+      # actions/checkout에서 ref: ${{ github.workflow_sha }} 또는 명시적 inputs로 전달.
+      # 단 GitHub Actions의 reusable workflow는 호출 시 사용된 SHA를 GITHUB_WORKFLOW_SHA
+      # env에 자동 제공. 이 env는 우리가 export하여 ci-caller가 사용.
     steps:
-      # ---------- 0단계: SHA pinning 사전 검증 ----------
-      # 이 워크플로우 파일 자체에 floating ref가 남아있으면 즉시 fail.
-      # 부트스트랩 문제 — 이 step의 checkout 자체도 SHA pin이어야 한다.
-      - name: Sanity check — no floating refs in this workflow
-        # <FIXME> actions/checkout v4의 full SHA로 교체 (예: 11bd71901bbe5b1630ceea73d27597364c9af683)
-        uses: actions/checkout@<FIXME-CHECKOUT-SHA>
-        with:
-          fetch-depth: 0
-      - name: Detect floating refs in workflow
+      # ---------- 0단계: 정책 SHA 결정 (호출자 `uses: ...@SHA`에서 자동) ----------
+      # github.workflow_sha = 이 reusable workflow를 호출한 SHA — 곧 POLICY_REPO_SHA.
+      # 호출자가 `uses: owner/repo/.github/workflows/foo.yml@<SHA>` 라고 적으면
+      # 그 <SHA> 가 그대로 github.workflow_sha. branch/tag로 호출하면 그 ref의 SHA.
+      - name: Resolve policy SHA from workflow ref
+        id: policy
         run: |
-          # 이 워크플로우 파일 안에 @<sha>가 아닌 @branch/@tag 형식이 있으면 거부.
-          # <FIXME> 플레이스홀더 자체도 잡힘 — 운영 전 모두 교체 필요.
-          if grep -nE 'uses:\s+[^@]+@(main|master|v[0-9]+|<FIXME)' .github/workflows/pre-merge-review.yml; then
-            echo "::error::이 워크플로우에 floating ref 또는 미해결 FIXME가 있습니다. 모든 uses:는 40자 commit SHA로 고정해야 합니다."
+          # github.workflow_sha = 호출자 'uses: ...@<SHA>' 의 SHA.
+          # 비어있으면 호출자가 mutable ref(branch/tag)로 호출한 것 — supply chain 위반.
+          POLICY_SHA="${{ github.workflow_sha }}"
+          if [ -z "$POLICY_SHA" ]; then
+            echo "::error::github.workflow_sha 가 비어있음 — reusable workflow를 'uses: owner/repo/.../foo.yml@<40-hex-SHA>' 형식으로 호출하세요. branch/tag 금지."
             exit 1
           fi
+          if ! [[ "$POLICY_SHA" =~ ^[a-f0-9]{40}$ ]]; then
+            echo "::error::policy SHA 형식 부적합 ($POLICY_SHA) — 40자 hex만 허용"
+            exit 1
+          fi
+          echo "POLICY_REPO_SHA=$POLICY_SHA" >> "$GITHUB_ENV"
+          echo "policy_sha=$POLICY_SHA"      >> "$GITHUB_OUTPUT"
+          echo "::notice::Policy SHA = $POLICY_SHA (from workflow_sha)"
 
-      # ---------- 1단계: changeguard checkout (SHA pin 강제) ----------
-      - name: Checkout changeguard at pinned SHA
-        # <FIXME> actions/checkout v4 SHA로 교체
-        uses: actions/checkout@<FIXME-CHECKOUT-SHA>
+      # ---------- 1단계: changeguard 정책 코드 checkout (SHA pin 강제) ----------
+      # actions/checkout v6.0.2
+      - name: Checkout policy code at pinned SHA
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           repository: ${{ env.POLICY_REPO }}
           ref: ${{ env.POLICY_REPO_SHA }}
           path: .policy
-          # changeguard는 public이므로 token 불필요.
-          # private 전환 시: token: ${{ secrets.POLICY_REPO_READ_TOKEN }} 추가
 
       - name: Verify policy SHA matches expectation
         run: |
           actual=$(git -C .policy rev-parse HEAD)
           if [ "$actual" != "$POLICY_REPO_SHA" ]; then
             echo "::error::Policy SHA mismatch: expected $POLICY_REPO_SHA, got $actual"
-            echo "이 차이는 정책 repo가 임의 변경되었거나 ref 해석이 어긋났음을 의미. 워크플로우 중단."
             exit 1
           fi
-          # 정책 버전 export (caller로 전달)
-          echo "POLICY_VERSION=$(cat .policy/VERSION)" >> $GITHUB_ENV
-          echo "POLICY_SHA=$actual" >> $GITHUB_ENV
+          echo "POLICY_VERSION=$(cat .policy/VERSION)" >> "$GITHUB_ENV"
+          echo "POLICY_SHA=$actual" >> "$GITHUB_ENV"
 
-      # ---------- 2단계: incoming diff 계산 ----------
+      # ---------- 2단계: 소비자 repo checkout (incoming diff 계산용) ----------
+      # actions/checkout v6.0.2
+      - name: Checkout consumer repo
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          path: .consumer
+          fetch-depth: 0
+
+      # ---------- 3단계: incoming diff 계산 ----------
       - name: Compute incoming diff
         id: diff
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.after }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: .consumer
         run: |
-          # PR이면 base..head, push면 before..after
-          # 0000... base (force push 또는 새 branch)는 비교 불가 → 전체 diff 대신 skip
-          if [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
-            echo "::warning::base SHA가 zero — force push 또는 새 branch. diff 검사 건너뜀."
+          # PR이면 base..head, push면 before..after.
+          # workflow_dispatch 또는 일부 이벤트는 base가 비어있을 수 있음 → default branch에서 fallback.
+          if [ -z "$BASE_SHA" ]; then
+            DEFAULT_BRANCH=$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch 2>/dev/null || echo main)
+            BASE_SHA=$(git rev-parse "origin/$DEFAULT_BRANCH" 2>/dev/null || true)
+          fi
+          if [ -z "$HEAD_SHA" ]; then
+            HEAD_SHA=$(git rev-parse HEAD)
+          fi
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            echo "::warning::base SHA 부재/zero — diff 검사 건너뜀."
             : > /tmp/incoming.diff
           else
             git diff "$BASE_SHA".."$HEAD_SHA" > /tmp/incoming.diff
           fi
-          line_count=$(wc -l < /tmp/incoming.diff)
-          echo "diff_lines=$line_count" >> $GITHUB_OUTPUT
-          echo "base_sha=$BASE_SHA" >> $GITHUB_ENV
-          echo "incoming_sha=$HEAD_SHA" >> $GITHUB_ENV
-          echo "Diff lines: $line_count"
+          echo "diff_lines=$(wc -l < /tmp/incoming.diff)" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$BASE_SHA" >> "$GITHUB_ENV"
+          echo "incoming_sha=$HEAD_SHA" >> "$GITHUB_ENV"
 
-      # ---------- 3단계: 통합 caller 호출 ----------
-      # ci-caller.py가 다음을 모두 담당:
-      # - 결정론 검사 실행
-      # - gating 결정 (SKILL.md 2단계 규칙)
-      # - LLM adapter 호출 (gating이 허용한 경우)
-      # - verdict 계산
-      # - Slack 알림 디스패치 (verdict별 INFO/REVIEW/ALERT)
-      # - 적절한 exit code 반환 (block → 1, 그 외 → 0)
+      # ---------- 4단계: pre-merge review 실행 (ci-caller.py) ----------
       - name: Run pre-merge review
         id: review
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           POLICY_PATH: .policy
-          # POLICY_VERSION, POLICY_SHA는 step 1에서 export됨
-          # BASE_REF, INCOMING_REF
           BASE_REF: ${{ env.base_sha }}
           INCOMING_REF: ${{ env.incoming_sha }}
-          # v0.10+ deprecation 알림에 bump PR 링크를 첨부하기 위해 ci-caller.py가
-          # 현재 repo의 open PR을 조회할 때 사용. 없어도 deprecation 검사 자체는 동작.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: .consumer
         run: |
-          python3 .policy/skills/pre-merge-review/checks/ci-caller.py \
+          python3 ../.policy/skills/pre-merge-review/checks/ci-caller.py \
             --diff /tmp/incoming.diff \
             --output /tmp/review-result.json
-        continue-on-error: false  # block 시 워크플로우 실패
+        continue-on-error: false
 
-      # ---------- 4단계: 결과 아티팩트 보관 ----------
-      # block 또는 advisory의 경우 운영자가 사후 분석할 수 있도록 결과 JSON 보관
+      # ---------- 5단계: 결과 아티팩트 ----------
+      # actions/upload-artifact v7.0.1
       - name: Upload review result
         if: always()
-        # <FIXME> actions/upload-artifact v4 SHA로 교체
-        uses: actions/upload-artifact@<FIXME-UPLOAD-ARTIFACT-SHA>
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: pre-merge-review-${{ github.run_id }}
           path: /tmp/review-result.json
           retention-days: 30
 
-      # ---------- 5단계: inline annotations (PR diff에 라인 주석) ----------
-      # severity별 core.error/warning/notice로 finding을 GitHub annotation 시스템에
-      # 등록 → PR "Files changed" 탭에서 해당 라인 옆에 직접 표시.
-      # PR 이벤트뿐 아니라 push에서도 Annotations 패널에 노출됨.
+      # ---------- 6단계: inline annotations ----------
+      # actions/github-script v9.0.0
       - name: Emit inline annotations
         if: always()
-        # <FIXME> actions/github-script v7 SHA로 교체
-        uses: actions/github-script@<FIXME-GITHUB-SCRIPT-SHA>
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         with:
           script: |
             const fs = require('fs');
@@ -188,15 +199,13 @@ jobs:
               }
             }
 
-      # ---------- 6단계: PR body summary + PR comment (PR 이벤트만) ----------
-      # block/advisory 시:
-      #   1) PR body 상단에 delimited 요약 블록 prepend (PR 목록에서도 즉시 가시)
-      #   2) PR 코멘트로 상세 결과 게시
-      # 두 번 이상 실행되어도 PR body 블록은 idempotent 교체 (delimiter로 식별)
+      # ---------- 7단계: PR body summary + PR comment ----------
+      # actions/github-script v9.0.0
       - name: Update PR body + comment
         if: github.event_name == 'pull_request' && always()
-        # <FIXME> actions/github-script v7 SHA로 교체
-        uses: actions/github-script@<FIXME-GITHUB-SCRIPT-SHA>
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        env:
+          POLICY_REPO: ${{ env.POLICY_REPO }}
         with:
           script: |
             const fs = require('fs');
@@ -207,9 +216,8 @@ jobs:
               core.warning(`Could not read review result: ${e.message}`);
               return;
             }
-            if (result.verdict === 'pass') return;  // pass는 comment·body 갱신 모두 안 함
+            if (result.verdict === 'pass') return;
 
-            // ---- 스마트 링크 helper (markdown) ----
             const server = context.serverUrl || 'https://github.com';
             const repo = `${context.repo.owner}/${context.repo.repo}`;
             const policyRepo = process.env.POLICY_REPO || 'sapadmin-df/changeguard';
@@ -227,12 +235,19 @@ jobs:
               if (!m) return `\`${loc}\``;
               const [, path, l1, l2] = m;
               let url = `${server}/${r}/blob/${sha}/${path}`;
-              if (l1) {
-                url += `#L${l1}`;
-                if (l2) url += `-L${l2}`;
-              }
+              if (l1) { url += `#L${l1}`; if (l2) url += `-L${l2}`; }
               return mdLink(url, `\`${loc}\``);
             };
+
+            const intentBadgeMap = {
+              intentional: '✓ 의도된 변경으로 판단',
+              suspicious:  '⚠ 의심 단서 존재',
+              unclear:     '? 판단 보류',
+            };
+            const assessment = result.assessment;
+            const intentBadge = assessment && intentBadgeMap[assessment.intent]
+              ? ` · LLM: ${intentBadgeMap[assessment.intent]}`
+              : '';
 
             const emoji = result.verdict === 'block' ? '🚨' : '⚠️';
             const linkPolicyVer = mdLink(
@@ -245,18 +260,7 @@ jobs:
               'workflow run'
             );
 
-            // v0.13+: LLM assessment 배지·rationale (있을 때만)
-            const intentBadgeMap = {
-              intentional: '✓ 의도된 변경으로 판단',
-              suspicious:  '⚠ 의심 단서 존재',
-              unclear:     '? 판단 보류',
-            };
-            const assessment = result.assessment;
-            const intentBadge = assessment && intentBadgeMap[assessment.intent]
-              ? ` · LLM: ${intentBadgeMap[assessment.intent]}`
-              : '';
-
-            // ---- (1) PR body 상단 요약 블록 (idempotent) ----
+            // PR body 상단 요약 블록 (idempotent)
             const SUMMARY_START = '<!-- pre-merge-summary-start -->';
             const SUMMARY_END = '<!-- pre-merge-summary-end -->';
             const severityCounts = {};
@@ -267,7 +271,6 @@ jobs:
             const sevSummary = ['critical','high','medium','low'].map(
               s => severityCounts[s] ? `${severityCounts[s]} ${s}` : null
             ).filter(Boolean).join(', ') || '(no findings)';
-
             const summaryLine = `> ${emoji} **[Pre-Merge ${result.verdict}]** · ${sevSummary} · policy ${linkPolicyVer} (${linkPolicySha})${intentBadge} · ${linkRun}`;
             const summaryBlock = `${SUMMARY_START}\n${summaryLine}\n${SUMMARY_END}`;
 
@@ -295,12 +298,7 @@ jobs:
               core.warning(`PR body update failed: ${e.message}`);
             }
 
-            // ---- (2) PR comment ----
-            const findings = (result.findings || []).slice(0, 5).map(f =>
-              `- **[${f.severity}]** \`${f.category}\` @ ${linkFile(repo, headSha, f.location)} — ${f.description}`
-            ).join('\n');
-
-            // v0.14+: 자동 검증 섹션 (POLICY_REPO_SHA bump일 때만)
+            // 자동 검증 섹션 (POLICY_REPO_SHA bump일 때만)
             let bumpSection = '';
             const bump = result.policy_bump_verification;
             if (bump) {
@@ -333,7 +331,7 @@ jobs:
               bumpSection = '\n' + lines.join('\n') + '\n';
             }
 
-            // v0.13+: LLM assessment + 사람 액션 (AC 형식)
+            // LLM assessment + 사람 액션 (AC 형식)
             let llmSection = '';
             let actionSection = '';
             if (assessment) {
@@ -353,6 +351,10 @@ jobs:
                 ].join('\n');
               }
             }
+
+            const findings = (result.findings || []).slice(0, 5).map(f =>
+              `- **[${f.severity}]** \`${f.category}\` @ ${linkFile(repo, headSha, f.location)} — ${f.description}`
+            ).join('\n');
 
             const body = [
               `## ${emoji} Pre-Merge Review: \`${result.verdict}\``,

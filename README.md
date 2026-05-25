@@ -136,6 +136,64 @@ git config commit.gpgsign true
 SSH and GPG keys — Authentication Key와는 별도 항목). GitHub의 SSH 공개키는
 계정당 유일하므로, 여러 계정으로 기여한다면 계정마다 별도의 키가 필요하다.
 
+## v0.16 — Reusable workflow + 자동 온보딩 (한 명령)
+
+v0.15까지의 소비자 워크플로우는 100+ 줄의 `.template` 파일을 복사하고 4-6개
+placeholder를 손으로 채우는 방식이었다 (30분~2시간 소요, 비기술 사용자에게는
+사실상 불가능).
+
+v0.16의 변화:
+
+### Reusable workflow
+
+`pre-merge-review.yml` / `policy-bump-watcher.yml` 두 파일을 `workflow_call`
+트리거를 가진 reusable workflow로 전환. 소비자는 5-10줄로 호출만 한다:
+
+```yaml
+# 소비자 .github/workflows/pre-merge-review.yml (5-10줄)
+name: pre-merge-review
+on:
+  push: { branches: [main] }
+  pull_request: {}
+jobs:
+  review:
+    uses: sapadmin-df/changeguard/.github/workflows/pre-merge-review.yml@<SHA>
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+```
+
+- 모든 게이트 로직(deprecation check, LLM 분석, Slack 알림, annotation 등)이
+  정책 본부에 집중
+- `secrets: inherit` 대신 **명시적 pass-through** — 소비자의 다른 secrets가
+  우연히 노출되지 않도록
+- `github.workflow_sha` 가 곧 정책 SHA — `uses: ...@<SHA>` 의 SHA가 자동으로
+  반영. mutable branch/tag 호출은 즉시 실패.
+
+### 자동 온보딩 (`scripts/bootstrap-consumer.sh`)
+
+한 명령으로 끝:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/sapadmin-df/changeguard/main/scripts/bootstrap-consumer.sh)
+```
+
+내부 동작:
+1. `gh` 인증·git repo 사전 체크
+2. **default branch 자동 감지** (`main` / `master` / `develop` 호환)
+3. **최신 정책 SHA fetch** (`--policy-sha` 로 특정 SHA pin 가능)
+4. 두 워크플로우 파일을 5-10줄 reusable 호출 형태로 생성
+5. `verify-workflow-pins.sh` 로 SHA 고정 사후 검증
+6. `gh secret set` 명령 안내 (값은 prompt로 직접 입력 — shell history 노출 방지)
+7. PR 자동 생성
+
+`--dry-run` 으로 변경 전 검토 가능. 자세한 사용법은 `docs/INSTALL.md` 참조.
+
+### 마이그레이션
+
+기존 v0.15 이하 소비자는 `docs/UPGRADING.md` 참조. bootstrap 스크립트가
+기존 파일을 *덮어쓸지 묻는* 식으로 안전하게 마이그레이션.
+
 ## 정책 버전 floor (deprecation)
 
 `min-supported.txt`에 명시된 SHA보다 오래된 정책 SHA에 pin된 소비자는 다음 워크플로우

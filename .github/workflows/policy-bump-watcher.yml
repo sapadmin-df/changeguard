@@ -1,63 +1,62 @@
-# changeguard 정책 SHA 자동 bump PR 생성 + 사전 검증 + Slack 통합 알림 — 대상 repo용 template
+# changeguard policy-bump-watcher — Reusable workflow (v0.16+)
 #
 # 정책 본부: https://github.com/sapadmin-df/changeguard (public)
 #
-# 설치 절차:
-#   1. 대상 repo의 .github/workflows/policy-bump-watcher.yml 로 복사
-#   2. <FIXME-CHECKOUT-SHA>를 changeguard scripts/pin-actions.sh로 채우기
-#   3. (선택) secrets:
-#      - SLACK_WEBHOOK_URL: bump PR 생성 알림용 (없으면 알림 생략)
+# 사용 방법 (소비자 측):
+#   소비자 repo의 .github/workflows/policy-bump-watcher.yml 에 다음과 같이 작성:
 #
-# 동작:
-#   매주 changeguard upstream main을 폴링해서 현재 pin과 다르면 갱신 PR을 자동 생성한다.
-#   자동 merge는 *하지 않는다* — 리뷰·승인은 사람이 한다 (changeguard 정책 준수).
+#     name: policy-bump-watcher
+#     on:
+#       schedule: [{ cron: '0 9 * * 1' }]   # 매주 월요일 09:00 UTC
+#       workflow_dispatch:
+#     jobs:
+#       bump:
+#         uses: sapadmin-df/changeguard/.github/workflows/policy-bump-watcher.yml@<SHA>
+#         secrets:
+#           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 #
-# 흐름:
-#   1. 새 SHA 발견
-#   2. Pre-flight — 새 SHA의 changeguard를 clone하여 fixture corpus(결정론+통합)를
-#      미리 돌려 회귀 사전 확인. 결과를 PR body·Slack에 첨부.
-#   3. 갱신 PR 생성 (label `policy-bump`, branch `chore/policy-bump-<sha[:12]>`)
-#      - body: commit 목록 + GitHub compare URL + pre-flight 결과
-#      - stale bump PR은 label로 매칭해 자동 close
-#   4. pre-merge-review를 같은 브랜치에서 workflow_dispatch로 즉시 트리거
-#      (GITHUB_TOKEN-created PR이 자동 워크플로우 트리거 안 되는 제약 회피)
-#   5. Slack 알림 발송 — bump PR URL · compare URL · pre-flight 배지 · commit 수
-#      사용자가 한 메시지에서 "변경 + 검증 상태 + 리뷰 입구" 모두 클릭으로 접근.
+#   소비자가 작성할 분량은 5-10줄. 모든 watcher 로직은 이 reusable workflow 안에.
 #
-# 함께 동작하는 통합 (changeguard ci-caller.py v0.10+):
-#   - deprecation 알림이 이 워크플로우가 만든 PR(label `policy-bump`)을 검색해 첨부
-#   - master push의 POLICY_UPDATED 알림이 별도 발송 (compare URL 포함)
-#   - changeguard v0.11+의 SHA-only swap 강등 덕에 이 PR은 critical block 받지 않음
-#
-# 알려진 한계:
-#   - GITHUB_TOKEN-created PR은 자동 워크플로우 트리거 안 됨 → step 4의 우회 필요.
-#     PR Checks 탭 매핑은 안 됨, Actions 탭에서 확인. 장기 해결: machine user PAT.
+# 자동 동작:
+#   - changeguard upstream main의 최신 SHA 조회
+#   - 소비자 repo의 pre-merge-review.yml 안 'uses: ...@<SHA>' 의 SHA와 비교
+#   - 다르면: pre-flight 회귀 → bump PR 자동 생성 (label `policy-bump`)
+#   - stale bump PR 자동 close
+#   - PR 생성 후 Slack 알림 (SLACK_WEBHOOK_URL 있을 때)
 
-name: policy-bump-watcher
+name: policy-bump-watcher (reusable)
 
 on:
-  schedule:
-    # 매주 월요일 09:00 UTC (= 18:00 KST). 조정 시 cron 문법 참고.
-    - cron: '0 9 * * 1'
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      policy_repo:
+        description: "정책 repo (기본 sapadmin-df/changeguard)"
+        type: string
+        required: false
+        default: "sapadmin-df/changeguard"
+    secrets:
+      SLACK_WEBHOOK_URL:
+        description: "Slack incoming webhook — 없으면 알림 생략."
+        required: false
 
 permissions:
   contents: write
   pull-requests: write
 
 env:
-  POLICY_REPO: "sapadmin-df/changeguard"
   BUMP_LABEL: "policy-bump"
   BUMP_BRANCH_PREFIX: "chore/policy-bump-"
-  WORKFLOW_FILE: ".github/workflows/pre-merge-review.yml"
+  CONSUMER_WORKFLOW: ".github/workflows/pre-merge-review.yml"
 
 jobs:
   bump:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      POLICY_REPO: ${{ inputs.policy_repo }}
     steps:
-      # <FIXME> actions/checkout v4+ SHA로 교체 (pin-actions.sh로 자동)
-      - uses: actions/checkout@<FIXME-CHECKOUT-SHA>
+      # actions/checkout v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
 
@@ -66,18 +65,28 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # 대상 repo의 default branch 자동 감지 (master/main 모두 호환)
           DEFAULT_BRANCH=$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)
           echo "default_branch=$DEFAULT_BRANCH" >> "$GITHUB_OUTPUT"
 
-          CURRENT=$(grep -oE 'POLICY_REPO_SHA: *"[a-f0-9]{40}"' "$WORKFLOW_FILE" \
+          # 소비자의 'uses: <policy_repo>/.github/workflows/...@<SHA>' 라인에서 SHA 추출.
+          # v0.16+ reusable workflow 방식.
+          CURRENT=$(grep -oE "uses:[[:space:]]*${POLICY_REPO//\//\\/}/[^@]+@[a-f0-9]{40}" "$CONSUMER_WORKFLOW" \
                     | grep -oE '[a-f0-9]{40}' | head -1)
+          if [ -z "$CURRENT" ]; then
+            # v0.15 이하 (POLICY_REPO_SHA env 변수 방식) fallback — 마이그레이션 안 된 소비자
+            CURRENT=$(grep -oE 'POLICY_REPO_SHA:[[:space:]]*"[a-f0-9]{40}"' "$CONSUMER_WORKFLOW" \
+                      | grep -oE '[a-f0-9]{40}' | head -1)
+          fi
+          if [ -z "$CURRENT" ]; then
+            echo "::error::현재 POLICY SHA를 추출하지 못함 — $CONSUMER_WORKFLOW 확인"
+            exit 1
+          fi
           LATEST=$(gh api "repos/$POLICY_REPO/commits/main" --jq .sha)
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
           echo "latest=$LATEST"   >> "$GITHUB_OUTPUT"
           if [ "$CURRENT" = "$LATEST" ]; then
             echo "needed=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::policy SHA up-to-date — no bump needed (current=$CURRENT)"
+            echo "::notice::policy SHA up-to-date (current=$CURRENT)"
           else
             echo "needed=true"  >> "$GITHUB_OUTPUT"
             echo "::notice::bump needed: $CURRENT → $LATEST  (target branch: $DEFAULT_BRANCH)"
@@ -106,7 +115,6 @@ jobs:
               --comment "🤖 새 changeguard SHA 발견 → 새 갱신 PR로 대체합니다."
           done
 
-      # === Pre-flight: 새 SHA의 fixture corpus 회귀 사전 검증 ===
       - name: Pre-flight fixture corpus on new policy SHA
         if: steps.shas.outputs.needed == 'true'
         id: preflight
@@ -134,23 +142,19 @@ jobs:
           echo "int=$INT_RESULT" >> "$GITHUB_OUTPUT"
           if [ "$DET_RESULT" = pass ] && [ "$INT_RESULT" = pass ]; then
             echo "overall=pass" >> "$GITHUB_OUTPUT"
-            echo "::notice::pre-flight passed on $NEW (det+int both pass)"
           else
             echo "overall=fail" >> "$GITHUB_OUTPUT"
-            echo "::warning::pre-flight FAILED on $NEW (det=$DET_RESULT int=$INT_RESULT)"
           fi
-          DET_TAIL=$(tail -3 /tmp/pf-det.txt)
-          INT_TAIL=$(tail -3 /tmp/pf-int.txt)
           {
             echo 'TAIL<<TAIL_EOF'
             echo "결정론 fixture: $DET_RESULT"
             echo '```'
-            echo "$DET_TAIL"
+            tail -3 /tmp/pf-det.txt
             echo '```'
             echo
             echo "통합 fixture: $INT_RESULT"
             echo '```'
-            echo "$INT_TAIL"
+            tail -3 /tmp/pf-int.txt
             echo '```'
             echo 'TAIL_EOF'
           } >> "$GITHUB_OUTPUT"
@@ -170,7 +174,6 @@ jobs:
           COMPARE_URL=$(echo "$COMPARE" | jq -r .html_url)
           echo "commit_count=$COMMIT_COUNT" >> "$GITHUB_OUTPUT"
           echo "compare_url=$COMPARE_URL"   >> "$GITHUB_OUTPUT"
-
           case "$PF_OVERALL" in
             pass)    PF_BADGE="✅ **pre-flight pass** — 새 정책으로 fixture corpus 회귀 0건" ;;
             fail)    PF_BADGE="⚠️ **pre-flight FAIL** — 정책 자체의 회귀 의심, 신중 검토 필수" ;;
@@ -182,7 +185,7 @@ jobs:
             echo
             echo "$COMPARE" | jq -r '.commits[] | "- [`\(.sha[0:12])`](\(.html_url)) \(.commit.message | split("\n")[0])"'
             echo
-            echo "**전체 diff (Bitbucket의 diff 시뮬레이션과 동일)**: $COMPARE_URL"
+            echo "**전체 diff (commit-to-commit)**: $COMPARE_URL"
             echo
             echo "### Pre-flight 검증"
             echo
@@ -192,8 +195,7 @@ jobs:
             echo
             echo "---"
             echo
-            echo "이 PR은 \`policy-bump-watcher\`가 자동 생성. merge되면 \`POLICY_REPO_SHA\`가"
-            echo "갱신되어 새 정책으로 검사를 시작합니다."
+            echo "이 PR은 \`policy-bump-watcher\`가 자동 생성. merge되면 새 정책으로 검사를 시작합니다."
             echo
             echo "> ℹ️ GITHUB_TOKEN-created PR이라 자동 워크플로우 트리거가 안 되지만,"
             echo "> watcher가 \`workflow_dispatch\`로 같은 브랜치에서 즉시 트리거합니다 —"
@@ -221,14 +223,15 @@ jobs:
           BRANCH="${BUMP_BRANCH_PREFIX}${NEW:0:12}"
           git checkout -b "$BRANCH"
 
-          sed -i "s/${OLD}/${NEW}/g" "$WORKFLOW_FILE"
-
-          if ! grep -q "$NEW" "$WORKFLOW_FILE"; then
-            echo "::error::sed replace failed — $NEW not present in workflow file"
+          # OLD → NEW 치환 (workflow 파일이 v0.16 형식이면 uses 라인, v0.15 이하면 POLICY_REPO_SHA env)
+          # 어느 쪽이든 단순 SHA 치환으로 충분
+          sed -i "s/${OLD}/${NEW}/g" "$CONSUMER_WORKFLOW"
+          if ! grep -q "$NEW" "$CONSUMER_WORKFLOW"; then
+            echo "::error::sed replace failed — $NEW not present"
             exit 1
           fi
 
-          git add "$WORKFLOW_FILE"
+          git add "$CONSUMER_WORKFLOW"
           git commit -m "ci: bump changeguard policy SHA → ${NEW:0:12}"
           git push origin "$BRANCH"
 
@@ -243,12 +246,9 @@ jobs:
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           echo "branch=$BRANCH"       >> "$GITHUB_OUTPUT"
 
-          gh workflow run pre-merge-review.yml --ref "$BRANCH" || \
-            echo "::warning::workflow_dispatch failed — re-run manually if needed"
+          gh workflow run pre-merge-review.yml --ref "$BRANCH" 2>/dev/null \
+            || echo "::warning::workflow_dispatch failed — re-run manually if needed"
 
-          echo "::notice::Bump PR created: $PR_URL"
-
-      # === Slack 통합 알림 — 사용자가 메시지에서 PR/diff/검증 결과를 한 번에 검토 ===
       - name: Notify Slack about bump PR
         if: steps.shas.outputs.needed == 'true' && steps.create.outputs.pr_url != ''
         env:
@@ -274,7 +274,7 @@ jobs:
             fail) PF="⚠️ pre-flight FAIL — 신중 검토 필요" ;;
             *)    PF="❓ pre-flight 결과 불명" ;;
           esac
-          TEXT=$(printf '🤖 *POLICY BUMP PR* — <%s|%s>\n새 changeguard SHA: %s → %s (%s commits)\n변경 diff: <%s|GitHub compare (commit-to-commit diff 시뮬레이션)>\n%s\n\n*리뷰 PR*: <%s|#%s>' \
+          TEXT=$(printf '🤖 *POLICY BUMP PR* — <%s|%s>\n새 changeguard SHA: %s → %s (%s commits) · <%s|변경 내용>\n%s\n\n*리뷰 PR*: <%s|#%s>' \
             "$REPO_URL" "$GITHUB_REPOSITORY" "$OLD_LINK" "$NEW_LINK" "$COMMIT_COUNT" "$COMPARE_URL" "$PF" "$PR_URL" "$PR_NUMBER")
           PAYLOAD=$(TEXT="$TEXT" python3 -c "import json,os; print(json.dumps({'_kind':'BUMP','attachments':[{'color':'#9c00d6','text':os.environ['TEXT'],'mrkdwn_in':['text']}]}))")
           HTTP=$(curl -sS -X POST -H 'Content-Type: application/json' \
