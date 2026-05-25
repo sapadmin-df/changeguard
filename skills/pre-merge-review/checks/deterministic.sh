@@ -84,6 +84,35 @@ fi
 
 # ---------- 4. 의심 실행 패턴 ----------
 # curl | sh, wget | bash, eval(atob, eval(Buffer.from
+# v0.15+: awk 로 diff hunk header를 파싱해 *원본 파일의 line*을 location으로 보고.
+# 결과적으로 ci-caller가 GitHub blob URL을 만들어 사람이 한 번에 점프 가능.
+
+# awk 함수: 각 추가 라인을 (file, line_in_new_file, line_content) 형태로 출력.
+# markdown 파일은 skip (LLM 영향은 시스템 프롬프트 격리로 별도 방어).
+scan_added_lines() {
+  awk '
+    /^diff --git/ { in_hunk = 0; current_file = ""; skip = 0; next }
+    /^\+\+\+ b\// {
+      current_file = substr($0, 7)
+      skip = (current_file ~ /\.(md|markdown)$/)
+      in_hunk = 0
+      next
+    }
+    /^@@/ {
+      if (match($0, /\+[0-9]+/) > 0) {
+        new_lineno = substr($0, RSTART + 1, RLENGTH - 1) + 0 - 1
+      }
+      in_hunk = 1
+      next
+    }
+    !in_hunk { next }
+    skip { next }
+    /^\+[^+]/ { new_lineno++; print current_file "\t" new_lineno "\t" substr($0, 2); next }
+    /^ /     { new_lineno++; next }
+    /^-/     { next }
+  ' "$1"
+}
+
 declare -A patterns=(
   ["curl[^|]*\|\s*(sh|bash)"]="critical:Pipe-to-shell 실행 패턴 (curl|sh)"
   ["wget[^|]*\|\s*(sh|bash)"]="critical:Pipe-to-shell 실행 패턴 (wget|bash)"
@@ -92,15 +121,19 @@ declare -A patterns=(
   ["child_process.*exec.*\\\$\{"]="high:동적 셸 명령 조립"
 )
 
+# scan 결과를 한 번만 만들어 재사용 (퍼포먼스 + 단일 source of truth)
+ADDED_LINES=$(mktemp)
+scan_added_lines "$DIFF" > "$ADDED_LINES"
+
 for pattern in "${!patterns[@]}"; do
   spec="${patterns[$pattern]}"
   severity="${spec%%:*}"
   description="${spec#*:}"
-  if grep -nE "^\+.*$pattern" "$DIFF_NO_MD" >/dev/null 2>&1; then
-    while IFS= read -r match; do
-      add_finding "$severity" "pattern" "diff:$match" "$description"
-    done < <(grep -nE "^\+.*$pattern" "$DIFF_NO_MD" | head -10 | cut -d: -f1)
-  fi
+  # 매치되는 라인만 head로 제한 (반복 finding 방지)
+  while IFS=$'\t' read -r file lineno _content; do
+    [[ -z "$file" ]] && continue
+    add_finding "$severity" "pattern" "${file}:${lineno}" "$description"
+  done < <(grep -E "$pattern" "$ADDED_LINES" | head -10)
 done
 
 # ---------- 5. 긴 base64 문자열 ----------
@@ -121,24 +154,25 @@ fi
 
 # ---------- 7. Prompt injection 메타 키워드 ----------
 # LLM 단계 진입 전에 이런 패턴을 잡아둔다. LLM이 영향받는 것을 차단.
-# Markdown 파일은 제외 — 보안 문서가 위협 패턴을 *논의*하는 자연어 본문은
-# false positive이며, LLM 영향은 시스템 프롬프트 격리로 별도 방어된다.
+# Markdown 파일은 scan_added_lines 단계에서 skip (LLM 영향은 시스템 프롬프트
+# 격리로 별도 방어).
 #
-# 중요: injection 원문을 description에 *그대로* 싣지 않는다. 그렇게 하면
-# 이 finding이 LLM adapter의 user 메시지나 로컬 Claude 컨텍스트에 들어갈 때
-# 2차 injection 벡터가 된다. 대신 (1) 감지된 키워드, (2) 라인 번호만 보고하고
-# 운영자가 직접 diff를 확인하도록 한다.
+# 중요: injection 원문을 description에 *그대로* 싣지 않는다 — 2차 injection 벡터.
+# 대신 (1) 감지된 키워드, (2) file:line (클릭 가능 location)을 보고하고 ci-caller가
+# GitHub blob URL을 자동 생성하도록 한다. "diff를 직접 확인할 것" 같은 hand-wave
+# 안내는 v0.15+에서 제거 — 링크가 그 역할을 한다.
 INJECTION_PATTERNS='(IGNORE\s+PREVIOUS|SYSTEM\s+PROMPT|CLAUDE\s+INSTRUCTION|ANTHROPIC\s+OVERRIDE|DISREGARD\s+(ABOVE|PRIOR)|NEW\s+INSTRUCTIONS?:|##\s*SYSTEM)'
-if grep -niE "^\+.*$INJECTION_PATTERNS" "$DIFF_NO_MD" >/dev/null 2>&1; then
-  while IFS= read -r line; do
-    # 라인 번호 추출 (grep -n 출력의 맨 앞 숫자)
-    line_no=$(echo "$line" | grep -oE '^[0-9]+' | head -1)
-    # 어떤 키워드가 매치됐는지만 추출 (원문 전체가 아님)
-    matched_kw=$(echo "$line" | grep -oiE "$INJECTION_PATTERNS" | head -1 | tr '[:lower:]' '[:upper:]' | tr -s ' ')
-    add_finding "critical" "injection" "diff:line${line_no}" \
-      "Prompt injection 메타 키워드 감지: '${matched_kw}' (diff 라인 ${line_no}). LLM 분석 우회 시도일 수 있음. 원문은 보안상 여기 포함하지 않음 — diff를 직접 확인할 것."
-  done < <(grep -niE "^\+.*$INJECTION_PATTERNS" "$DIFF_NO_MD" | head -5)
-fi
+INJ_COUNT=0
+while IFS=$'\t' read -r file lineno content; do
+  [[ -z "$file" ]] && continue
+  [[ $INJ_COUNT -ge 5 ]] && break
+  matched_kw=$(echo "$content" | grep -oiE "$INJECTION_PATTERNS" | head -1 | tr '[:lower:]' '[:upper:]' | tr -s ' ')
+  add_finding "critical" "injection" "${file}:${lineno}" \
+    "Prompt injection 메타 키워드 '${matched_kw}' 감지 — 해당 위치 클릭 시 GitHub에서 원문 확인 가능."
+  INJ_COUNT=$((INJ_COUNT + 1))
+done < <(grep -E "$INJECTION_PATTERNS" "$ADDED_LINES")
+
+rm -f "$ADDED_LINES"
 
 # ---------- 출력 ----------
 echo "$findings"

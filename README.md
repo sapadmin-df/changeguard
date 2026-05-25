@@ -176,6 +176,45 @@ Slack 알림과 PR 코멘트 모두 다음 식별자를 클릭 가능한 GitHub 
 Slack은 `<url|text>` (mrkdwn), PR 코멘트는 `[text](url)` (markdown). 사용자가 SHA·파일
 경로를 손으로 검색하지 않도록 *통합 관리*되는 메시지.
 
+## v0.15 — Finding 메시지 hook 강제 (양치기 회피의 마지막 장치)
+
+v0.14까지의 알림은 결정론 finding에서 종종 "diff를 직접 확인할 것" 같은
+hand-wave 안내를 description에 그대로 실었다. 우리가 강조해온 *즉시 클릭
+가능한 링크* 원칙의 정면 위반.
+
+### 원인 — `deterministic.sh`의 location 형식
+
+injection·pattern 검사가 grep -n 의 *diff 텍스트 안의 line number*를
+"diff:line260" 같은 형식으로 location에 넣었음. 이건 ci-caller의
+`_link_file()` 파서가 GitHub blob URL을 만들 수 없는 형식.
+
+### 해결
+
+1. **awk로 diff hunk header 파싱** — 추가된 라인마다 `(file_path,
+   line_in_new_file, content)`를 추출하는 `scan_added_lines` helper.
+   injection/pattern 검사 모두 이 helper로 통일.
+2. **location 형식 = `<file>:<line>`** — `_link_file()`이 자동으로
+   `https://github.com/{owner}/{repo}/blob/{sha}/{file}#L{line}` 생성.
+3. **description에서 hand-wave 제거** — "diff를 직접 확인할 것" 같은
+   문구를 "해당 위치 클릭 시 GitHub에서 원문 확인 가능"으로 대체.
+
+### Hook 강제 — `lint_finding_messages()` 자체 검증
+
+ci-caller가 알림 발송 직전에 모든 finding을 self-lint. hand-wave 패턴이
+location에 link 가능 정보 없이 있으면 → **`source: "self-lint"`** 의
+meta finding을 추가해 운영자에게 보고. 같은 안티패턴이 다시 등장하면
+즉시 가시.
+
+```python
+HAND_WAVE_PHRASES = (
+    "직접 확인", "수동으로 확인", "diff를 직접", "diff 라인",
+    "원문은 보안상", "포함하지 않음 — diff", ...
+)
+```
+
+이건 changeguard 자체의 메시지 품질을 *정책으로 강제*한다 — 일이 일을
+만드는 안티패턴이 코드에 다시 들어오면 self-report로 즉시 잡힘.
+
 ## v0.14 — 자동 검증 + 인간친화 알림 (일이 일을 만들지 않게)
 
 v0.13에서 LLM이 narrative를 작성하기 시작했지만, 그 narrative가 종종 "X를 확인하세요"

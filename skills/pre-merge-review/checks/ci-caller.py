@@ -315,6 +315,74 @@ def downgrade_sha_only_workflow_findings(diff_content, findings):
 
 # ===== v0.11+ POLICY_REPO_SHA 변경 감지 → POLICY_UPDATED 알림 =====
 
+def lint_finding_messages(findings):
+    """v0.15+ Finding 메시지 품질 self-lint (hook 강제).
+
+    changeguard 자체가 자기 자신의 메시지 품질을 정책으로 검증한다.
+    위반 패턴이 있으면 meta finding으로 self-report — 운영자에게 즉시 가시.
+    verdict는 변경하지 않음 (보고만).
+
+    검사 규칙 — 메시지 형식의 양치기 소년 회피:
+    - hand-wave: "직접 확인", "수동으로", "원문은 ... 포함하지 않음" 같은
+      클릭 가능 링크 없이 사람에게 작업을 떠넘기는 표현 금지
+    - location은 file:line 형식이어야 ci-caller의 _link_file()이 GitHub blob URL
+      을 만들어줌. "diff", "diff:lineNN", "n/a" 같은 placeholder는 link 불가
+    - 예외: 의도적으로 다중-라인 요약 finding (예: "lockfile 50줄 추가")은
+      파일만 있는 경우도 허용 → location이 적어도 `path` 형식이면 link 가능
+    """
+    HAND_WAVE_PHRASES = (
+        "직접 확인", "수동으로 확인", "diff를 직접", "diff 라인", "diff에서 확인",
+        "원문은 보안상", "포함하지 않음 — diff",
+    )
+    issues = []
+    for i, f in enumerate(findings or []):
+        loc = (f.get("location") or "").strip()
+        desc = f.get("description") or ""
+        source = f.get("source", "?")
+
+        # location 형식 검사: 비어있음/placeholder
+        loc_is_link_friendly = (
+            loc
+            and loc not in {"n/a", "diff"}
+            and not loc.startswith("diff:")
+            and not loc.startswith("llm_response")
+        )
+
+        # hand-wave 검사
+        handwave_found = next((p for p in HAND_WAVE_PHRASES if p in desc), None)
+
+        if handwave_found and not loc_is_link_friendly:
+            issues.append({
+                "finding_index": i,
+                "source": source,
+                "location": loc,
+                "hand_wave": handwave_found,
+                "category": f.get("category"),
+            })
+
+    if not issues:
+        return None
+
+    # self-report meta finding
+    detail = "; ".join(
+        f"#{x['finding_index']} ({x['source']}/{x['category']}) hand-wave='{x['hand_wave']}' loc='{x['location']}'"
+        for x in issues
+    )
+    return {
+        "severity": "low",
+        "category": "meta",
+        "location": "changeguard/skills/pre-merge-review",
+        "description": (
+            f"[finding-quality-lint] {len(issues)}개 finding이 클릭 가능 link 없이 "
+            f"hand-wave 안내만 제공. changeguard 자체의 메시지 품질 저하 — "
+            f"deterministic.sh 또는 LLM 응답에서 file:line location을 정확히 출력하도록 보강 필요. "
+            f"세부: {detail[:600]}"
+        ),
+        "source": "self-lint",
+        "confidence": "high",
+    }
+
+
 def diff_contains_policy_bump(diff_content):
     """diff에 POLICY_REPO_SHA 값 변경이 있으면 (old_sha, new_sha) 반환, 아니면 None."""
     SHA_PAT = r'[a-f0-9]{40}'
@@ -670,6 +738,12 @@ def main():
     # v0.14+: auto-verification 결과를 result에 첨부 (Slack/PR comment가 형식화)
     if bump_verification:
         result["policy_bump_verification"] = bump_verification
+
+    # v0.15+: Finding 메시지 품질 self-lint (hook 강제 — 양치기 회피의 마지막 장치)
+    lint_finding = lint_finding_messages(result.get("findings"))
+    if lint_finding:
+        result["findings"].append(lint_finding)
+        print(f"[finding-lint] {lint_finding['description'][:200]}", file=sys.stderr)
 
     # 4. 결과 출력
     output_text = json.dumps(result, ensure_ascii=False, indent=2)
