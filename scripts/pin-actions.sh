@@ -47,21 +47,43 @@ get_latest_release_sha() {
 
 MODE="show"
 WORKFLOW=""
-for arg in "$@"; do
-  case "$arg" in
-    --apply) MODE="apply" ;;
+POLICY_SHA=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --apply)            MODE="apply" ;;
+    --policy-sha)       POLICY_SHA="$2"; shift ;;
+    --policy-sha=*)     POLICY_SHA="${1#*=}" ;;
+    -h|--help)
+      sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' >&2
+      exit 0 ;;
     *)
       if [[ -z "$WORKFLOW" ]]; then
-        WORKFLOW="$arg"
+        WORKFLOW="$1"
       fi
       ;;
   esac
+  shift
 done
 
 if [[ "$MODE" == "apply" && -z "$WORKFLOW" ]]; then
-  echo "Usage: $0 --apply <workflow-file>" >&2
+  echo "Usage: $0 --apply <workflow-file> [--policy-sha <40-hex SHA>]" >&2
   exit 2
 fi
+
+if [[ -n "$POLICY_SHA" && ! "$POLICY_SHA" =~ ^[a-f0-9]{40}$ ]]; then
+  echo "ERR: --policy-sha 는 40자 hex SHA 필요 ($POLICY_SHA)" >&2
+  exit 2
+fi
+
+# macOS BSD sed vs GNU sed 분기 — sed -i 호환성
+sed_inplace() {
+  # $1 = sed 표현식, $2 = 대상 파일
+  if [[ "$OSTYPE" == darwin* ]]; then
+    sed -i '' "$1" "$2"
+  else
+    sed -i "$1" "$2"
+  fi
+}
 
 echo "Resolving latest release SHAs..."
 echo ""
@@ -103,10 +125,19 @@ for placeholder in "${!RESOLVED[@]}"; do
   sha="${RESOLVED[$placeholder]}"
   count=$(grep -c "$placeholder" "$WORKFLOW" || true)
   if [[ "$count" -gt 0 ]]; then
-    sed -i "s|$placeholder|$sha|g" "$WORKFLOW"
+    sed_inplace "s|$placeholder|$sha|g" "$WORKFLOW"
     echo "  replaced $placeholder ($count occurrences)"
   fi
 done
+
+# --policy-sha 가 주어졌으면 POLICY_REPO_SHA placeholder도 함께 채움 (v0.16+ 옵션)
+if [[ -n "$POLICY_SHA" ]]; then
+  zero='0000000000000000000000000000000000000000'
+  if grep -q "$zero" "$WORKFLOW"; then
+    sed_inplace "s|POLICY_REPO_SHA: \"$zero\"|POLICY_REPO_SHA: \"$POLICY_SHA\"|g" "$WORKFLOW"
+    echo "  replaced POLICY_REPO_SHA 0000... → $POLICY_SHA"
+  fi
+fi
 
 echo ""
 echo "검증 실행 중..."
