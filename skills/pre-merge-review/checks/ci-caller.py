@@ -446,11 +446,11 @@ def build_slack_message(result, kind):
     if omitted:
         finding_lines.append(f"… 외 {omitted}개 finding")
 
-    # v0.13+: assessment 가 있으면 intent 배지를 verdict 라인 옆에 노출
+    # v0.13+: assessment intent 배지
     intent_badge = ""
     intent_label_map = {
-        "intentional": "✓ 의도된 변경으로 판단",
-        "suspicious":  "⚠ 의심 단서 존재",
+        "intentional": "✓ 의도된 변경",
+        "suspicious":  "⚠ 의심 단서",
         "unclear":     "? 판단 보류",
     }
     assessment = result.get("assessment")
@@ -458,28 +458,73 @@ def build_slack_message(result, kind):
         intent_label = intent_label_map.get(assessment["intent"], assessment["intent"])
         intent_badge = f" · LLM: {intent_label}"
 
+    # v0.14+: TL;DR / 자동 검증 / 사람 액션 / Findings 4-섹션 구조
+    # 양치기 소년 회피 + 일이 일을 만들지 않게 — 검증된 사실은 ✓, 사람 액션은 짧고 명확.
+
+    # ---- TL;DR ----
     text_lines = [
-        f"{emoji_by_kind[kind]} *{kind}* — pre-merge review on {repo_link} @ {sha_link}",
+        f"{emoji_by_kind[kind]} *{kind}* — {repo_link} @ {sha_link}",
         f"Verdict: `{verdict}` · Policy: {policy_ver_link} ({policy_sha_link}){intent_badge}",
-        "",
-        summary.replace("\n", " · "),
     ]
 
-    # v0.13+: LLM 분석 narrative 섹션 (양치기 소년 회피)
+    # ---- 자동 검증 (POLICY_REPO_SHA bump일 때만) ----
+    bump = result.get("policy_bump_verification")
+    if bump:
+        overall = bump.get("overall", "unknown")
+        old_link = _link_commit(bump["policy_repo"], bump["old_sha"])
+        new_link = _link_commit(bump["policy_repo"], bump["new_sha"])
+        compare_link = _slk(bump["compare_url"], "변경 내용 보기")
+        text_lines.append("")
+        text_lines.append("*자동 검증 (POLICY_REPO_SHA 변경)*")
+        # 단언적·짧게. 각 라인이 사실 1개.
+        if bump.get("exists") is True:
+            text_lines.append(f"  ✓ 새 SHA 존재 — {new_link}")
+        elif bump.get("exists") is False:
+            text_lines.append(f"  ✗ 새 SHA가 `{bump['policy_repo']}` 에 없음 — 가짜/오타 의심")
+        if bump.get("reachable_from_main") is True:
+            text_lines.append(f"  ✓ main 브랜치에서 도달 가능 (`{bump.get('ancestor_status')}`)")
+        elif bump.get("reachable_from_main") is False:
+            text_lines.append(f"  ✗ main 도달 불가 (`{bump.get('ancestor_status')}`) — 포크/우회 의심")
+        if bump.get("verified") is True:
+            committer = bump.get("committer_login") or "?"
+            text_lines.append(f"  ✓ commit 서명 검증됨 ({committer})")
+        elif bump.get("verified") is False:
+            text_lines.append(f"  ✗ commit 서명 미검증 ({bump.get('verification_reason')})")
+        if bump.get("author_login"):
+            text_lines.append(f"  • author: {bump['author_login']}  ·  변경 1줄: {bump.get('message_first_line') or '(empty)'}")
+        text_lines.append(f"  → {compare_link}  ·  {old_link} → {new_link}")
+        # 종합 평가
+        overall_badge = {
+            "trusted":    "🟢 신뢰 가능 — 정책 변경 내용만 검토하면 됨",
+            "unverified": "🟡 서명 누락 — main 도달 가능하지만 서명 없음 (정책상 서명 필수면 거부)",
+            "suspicious": "🔴 의심 — 위 ✗ 항목 즉시 조사 필요",
+            "unknown":    "⚪ 검증 불완전 — 네트워크/응답 문제, 수동 확인 필요",
+        }.get(overall, overall)
+        text_lines.append(f"  → {overall_badge}")
+
+    # ---- LLM 분석 (있을 때) ----
     if assessment and assessment.get("rationale"):
         text_lines.append("")
-        text_lines.append(f"*LLM 분석*: {assessment['rationale']}")
-        if assessment.get("reviewer_focus"):
-            text_lines.append("*리뷰자 주의*:")
-            for f in assessment["reviewer_focus"]:
-                text_lines.append(f"  • {f}")
+        text_lines.append(f"*LLM 분석*  ({intent_label_map.get(assessment.get('intent','unclear'), assessment.get('intent'))})")
+        text_lines.append(assessment["rationale"])
 
+    # ---- 사람 액션 (필요시만) ----
+    # AC 항목: assessment.reviewer_focus 가 가장 신뢰성 있는 출처
+    if assessment and assessment.get("reviewer_focus"):
+        text_lines.append("")
+        text_lines.append("*사람 액션*")
+        for f in assessment["reviewer_focus"]:
+            text_lines.append(f"  □ {f}")
+
+    # ---- Findings (요약, 끝) ----
     if finding_lines:
         text_lines.append("")
+        text_lines.append("*Findings* (top 3)")
         text_lines.extend(finding_lines)
+
     if run_link:
         text_lines.append("")
-        text_lines.append(run_link)
+        text_lines.append(f"_세부: {run_link}_")
 
     return {
         "_kind": kind,
@@ -532,6 +577,30 @@ def main():
         print(f"diff read error: {e}", file=sys.stderr)
         sys.exit(2)
 
+    # 0.5. v0.14+: POLICY_REPO_SHA bump 자동 검증
+    # public repo + GITHUB_TOKEN으로 사람이 직접 확인할 사실(exists/signed/ancestor/author)을
+    # 코드가 미리 검증. LLM은 "확인하라"가 아니라 "확인됨/안 됨"으로 narrative 작성.
+    bump_verification = None
+    verifier = policy_path / "skills" / "pre-merge-review" / "checks" / "policy-bump-verify.py"
+    if verifier.exists():
+        try:
+            verify_proc = subprocess.run(
+                ["python3", str(verifier), "--diff", args.diff],
+                capture_output=True, text=True, timeout=30,
+                env={**os.environ},
+            )
+            if verify_proc.returncode == 0 and verify_proc.stdout.strip():
+                bump_data = json.loads(verify_proc.stdout)
+                if bump_data.get("bump_detected"):
+                    bump_verification = bump_data
+                    print(f"[bump-verify] overall={bump_data.get('overall')} "
+                          f"exists={bump_data.get('exists')} "
+                          f"verified={bump_data.get('verified')} "
+                          f"reachable={bump_data.get('reachable_from_main')}",
+                          file=sys.stderr)
+        except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError) as e:
+            print(f"[bump-verify] error: {e}", file=sys.stderr)
+
     # 1. 결정론 검사
     det_proc = subprocess.run(
         ["bash", str(checker), args.diff],
@@ -575,6 +644,12 @@ def main():
     ]
     if not call_llm:
         adapter_cmd.append("--skip-llm")
+    # v0.14+: bump verification 결과를 LLM에게 전달
+    bump_verify_path = None
+    if bump_verification:
+        bump_verify_path = Path("/tmp/bump-verification.json")
+        bump_verify_path.write_text(json.dumps(bump_verification, ensure_ascii=False))
+        adapter_cmd.extend(["--bump-verification", str(bump_verify_path)])
 
     adapter_proc = subprocess.run(adapter_cmd, capture_output=True, text=True)
     if adapter_proc.stderr:
@@ -591,6 +666,10 @@ def main():
         sys.exit(2)
 
     result["_gating"] = {"call_llm": call_llm, "reason": gating_reason}
+
+    # v0.14+: auto-verification 결과를 result에 첨부 (Slack/PR comment가 형식화)
+    if bump_verification:
+        result["policy_bump_verification"] = bump_verification
 
     # 4. 결과 출력
     output_text = json.dumps(result, ensure_ascii=False, indent=2)

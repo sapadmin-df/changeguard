@@ -76,6 +76,49 @@
       "type": "string",
       "description": "Suggested next step for the user, e.g. 'git merge --ff-only FETCH_HEAD' or 'review .github/workflows/deploy.yml'"
     },
+    "policy_bump_verification": {
+      "type": "object",
+      "description": "v0.14+ POLICY_REPO_SHA 변경 자동 검증 결과. public repo + GITHUB_TOKEN으로 코드가 직접 확인한 사실들. LLM이 'X를 확인하라'고 사람에게 떠넘기는 대신, 코드가 미리 확인해서 결과를 제공한다.",
+      "properties": {
+        "bump_detected": { "type": "boolean" },
+        "policy_repo": { "type": "string" },
+        "old_sha": { "type": "string" },
+        "new_sha": { "type": "string" },
+        "exists": {
+          "type": ["boolean", "null"],
+          "description": "true=새 SHA가 policy repo에 존재, false=없음(404/422), null=네트워크 실패"
+        },
+        "verified": {
+          "type": ["boolean", "null"],
+          "description": "GitHub의 commit 서명 검증 결과 (.commit.verification.verified)"
+        },
+        "verification_reason": {
+          "type": ["string", "null"],
+          "description": "'valid', 'unsigned', 'no_user' 등"
+        },
+        "reachable_from_main": {
+          "type": ["boolean", "null"],
+          "description": "compare main...new_sha 의 status가 'identical' 또는 'behind'이면 true (main에서 도달 가능)"
+        },
+        "ancestor_status": {
+          "type": ["string", "null"],
+          "enum": ["identical", "behind", "ahead", "diverged", null]
+        },
+        "author_login": { "type": ["string", "null"] },
+        "committer_login": { "type": ["string", "null"] },
+        "commit_url": { "type": "string" },
+        "compare_url": { "type": "string" },
+        "overall": {
+          "type": "string",
+          "enum": ["trusted", "unverified", "suspicious", "unknown"],
+          "description": "trusted = exists+reachable+verified 모두 ✓. unverified = 서명만 누락. suspicious = exists/reachable 중 ✗. unknown = 네트워크 실패."
+        },
+        "verdict_reasons": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
     "assessment": {
       "type": "object",
       "description": "LLM narrative 분석 (v0.13+, optional). verdict를 변경하지 *않음*. 결정론 critical은 그대로 critical로 남는다. 다만 사용자가 알림을 받았을 때 '이게 실제로 무엇인지' 즉시 판단할 수 있게 맥락을 제공한다 — 양치기 소년 문제 해소.",

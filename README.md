@@ -176,6 +176,61 @@ Slack 알림과 PR 코멘트 모두 다음 식별자를 클릭 가능한 GitHub 
 Slack은 `<url|text>` (mrkdwn), PR 코멘트는 `[text](url)` (markdown). 사용자가 SHA·파일
 경로를 손으로 검색하지 않도록 *통합 관리*되는 메시지.
 
+## v0.14 — 자동 검증 + 인간친화 알림 (일이 일을 만들지 않게)
+
+v0.13에서 LLM이 narrative를 작성하기 시작했지만, 그 narrative가 종종 "X를 확인하세요"
+같은 *사람에게 떠넘기는* 항목으로 끝났다. public repo의 SHA bump는 코드가
+직접 확인할 수 있는 사실이 대부분이다 — 그런 것을 사람에게 다시 묻는 건
+"일이 일을 만드는" 안티패턴.
+
+### `policy-bump-verify.py` 신규 — 자동 검증 4종
+
+`POLICY_REPO_SHA` 변경을 diff에서 감지하면 public GitHub API로 *사람이 직접
+확인하지 않아도 되는* 사실을 모두 검증:
+
+| 항목 | API | 결과 |
+|---|---|---|
+| **exists** | `GET /repos/{repo}/commits/{sha}` | 200 vs 404/422 |
+| **verified** | 위 응답의 `.commit.verification.verified` | true/false + reason |
+| **reachable_from_main** | `GET /repos/{repo}/compare/main...{sha}` | `identical`/`behind`/`ahead`/`diverged` |
+| **author / committer** | commits API 응답 | login, email domain |
+
+종합 `overall`:
+- 🟢 `trusted` — 세 가지 모두 ✓
+- 🟡 `unverified` — 서명만 누락 (main 도달 가능)
+- 🔴 `suspicious` — exists ✗ 또는 main 도달 불가
+- ⚪ `unknown` — 네트워크 실패 (fail-open)
+
+GITHUB_TOKEN (Actions 기본 제공) + public repo로 충분 — 추가 secret 불필요.
+
+### LLM에게 자동 검증 결과를 *전제*로 제공
+
+`llm-adapter.py`의 user message에 verification 결과가 별도 섹션으로 들어가서,
+LLM은 "확인하라" 대신 "확인됨" / "확인 못 됨"으로 narrative를 작성한다.
+system prompt의 정직성 원칙에 명시:
+
+> "자동 검증된 사실을 다시 묻지 마라. user message의 자동 검증 결과 섹션에서
+> trusted 상태로 끝난 항목은 reviewer_focus에 절대 포함하지 마라."
+
+### Slack / PR comment 4-섹션 구조
+
+알림의 정보 밀도와 가시성을 분리했다:
+
+```
+TL;DR        verdict + intent badge + policy 링크
+자동 검증    POLICY_REPO_SHA 변경 시: ✓/✗ 한 줄 사실 + 종합 배지 + compare URL
+LLM 분석     intent별 한 단락 narrative (반복 없음)
+사람 액션    AC 항목 체크박스 (코드가 못 확인하는 것만; 보통 0-2개)
+Findings    접을 수 있는 details (요청 시만 확인)
+```
+
+### 결과 — 양치기 소년 해소의 마지막 조각
+
+v0.13까지는 "확인 사항 4개" 같은 padding이 매번 발화되어 무시 위험.
+v0.14부터는 코드가 검증을 끝낸 항목이 ✓로 표시되고, 사람 액션은 코드가 *못
+확인하는* 것만 남음 — 보통 0-2개. **하면 할수록 좋은 보안 가드가 피로감으로
+오히려 뚫리는 안티패턴을 회피**.
+
 ## v0.13 — LLM 분석 narrative (양치기 소년 문제 해소)
 
 `v0.12`까지의 알림은 결정론 verdict의 boilerplate("Critical 발견사항 존재 — merge
