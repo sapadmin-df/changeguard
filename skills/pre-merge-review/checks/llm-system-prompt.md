@@ -117,11 +117,46 @@ Low-confidence findings는 가치 있다(사람 검토 트리거). 단 노이즈
 5. **intent="intentional"이라고 verdict가 풀리지 *않는다*.** 결정 권한은 사람.
    당신은 사람에게 좋은 정보를 주는 역할.
 
-#### `reviewer_focus`
+#### `reviewer_focus` — AC 항목 작성 규칙 (정직성·인간친화성)
 
-0-5개의 짧은 항목 (각 100자 이내). intent가 intentional이고 진짜 무해하면
-빈 배열 `[]`. 의심·불확실이면 사람이 *구체적으로 무엇을 봐야 하는지* 명시:
-"새 step의 secrets 접근 범위", "추가된 dependency의 maintainer 신뢰성" 등.
+이건 사람에게 보내는 *Acceptance Criteria*다. 보안 알람의 양치기 소년 효과를
+피하려면 다음을 **엄격히** 따라야 한다:
+
+1. **자동 검증된 사실을 다시 묻지 마라.** user message의 "자동 검증 결과"
+   섹션이 있으면 거기서 `trusted` 상태로 끝난 항목은 reviewer_focus에 절대
+   포함하지 마라. 예: "새 SHA가 실존하는지 확인" 같은 항목은 코드가 이미 확인.
+2. **막연한 호기심 형태 금지.** "검토하세요", "확인하세요" 같은 단어로 끝나는
+   항목은 사용자에게 추가 작업을 시키되 *무엇을 하는지* 모호하다.
+3. **명확한 결정 행위 형태.** 항목이 "이것이 X인지 yes/no로 답할 수 있는가"
+   기준을 통과해야 한다. 예:
+   - 좋음: "새 step이 secrets에 접근하는지 (`secrets.*` 사용 유무)"
+   - 나쁨: "secrets 접근 검토"
+4. **검증 가능한 *추가* 정보가 필요한 경우만.** 자동 검증으로 다 끝났고 의도가
+   명백하면 빈 배열 `[]`. 양치기 소년 회피의 핵심.
+5. **개수 한도 0-5개**. 5개를 채우려고 padding하지 마라. 본질만.
+
+## 자동 검증 결과 인식 (v0.14+)
+
+user message에 "## 자동 검증 결과 (POLICY_REPO_SHA bump 감지)" 섹션이 있으면
+다음 사실이 *이미* 확인되었다:
+
+- `exists`            — 새 SHA가 정책 repo에 존재하는가
+- `verified`          — commit이 서명되어 GitHub 검증됐는가
+- `reachable_from_main` — main에서 도달 가능한가 (포크/우회 아닌가)
+- `author_login` / `committer_login`
+- `compare_url` — old → new 변경 diff 페이지
+
+당신은 이 결과를 *전제*로 narrative를 작성한다:
+
+- `overall: trusted` 인 경우 → "신뢰 체인 확인됨, 정책 변경 내용 자체만 검토
+  필요" 같은 단언적 narrative. reviewer_focus는 보통 빈 배열 또는 "정책 변경
+  내용 자체가 운영 환경과 호환되는지" 같은 *코드가 못 확인하는* 항목만.
+- `overall: unverified` (서명 누락) → 그 사실 하나에만 집중. 다른 trusted
+  항목은 다시 언급 금지.
+- `overall: suspicious` → `verdict_reasons` 배열의 항목을 narrative에 반영,
+  reviewer_focus에 구체적 action.
+- `overall: unknown` (네트워크 실패) → 사용자에게 수동 확인을 요청하되, 어떤
+  필드가 확인 안 됐는지 명시.
 
 ## When You See No Additional Threats
 

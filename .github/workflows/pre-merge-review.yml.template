@@ -300,32 +300,73 @@ jobs:
               `- **[${f.severity}]** \`${f.category}\` @ ${linkFile(repo, headSha, f.location)} — ${f.description}`
             ).join('\n');
 
-            // v0.13+: LLM assessment 전용 섹션 (양치기 소년 회피 — 매 알림이 고유 맥락)
+            // v0.14+: 자동 검증 섹션 (POLICY_REPO_SHA bump일 때만)
+            let bumpSection = '';
+            const bump = result.policy_bump_verification;
+            if (bump) {
+              const newCommitLink = mdLink(`${server}/${bump.policy_repo}/commit/${bump.new_sha}`,
+                                            `\`${bump.new_sha_short}\``);
+              const compareLink = mdLink(bump.compare_url, '변경 내용 보기 (compare)');
+              const lines = ['### ✅ 자동 검증 (POLICY_REPO_SHA 변경)', ''];
+              if (bump.exists === true)
+                lines.push(`- ✓ 새 SHA 존재 — ${newCommitLink}`);
+              else if (bump.exists === false)
+                lines.push(`- ✗ 새 SHA가 \`${bump.policy_repo}\` 에 없음 — 가짜/오타 의심`);
+              if (bump.reachable_from_main === true)
+                lines.push(`- ✓ main 브랜치에서 도달 가능 (\`${bump.ancestor_status}\`)`);
+              else if (bump.reachable_from_main === false)
+                lines.push(`- ✗ main 도달 불가 (\`${bump.ancestor_status}\`) — 포크/우회 의심`);
+              if (bump.verified === true)
+                lines.push(`- ✓ commit 서명 검증됨 (${bump.committer_login || '?'})`);
+              else if (bump.verified === false)
+                lines.push(`- ✗ commit 서명 미검증 (${bump.verification_reason})`);
+              if (bump.author_login)
+                lines.push(`- author: \`${bump.author_login}\`  ·  메시지: ${bump.message_first_line || '(empty)'}`);
+              lines.push(`- → ${compareLink}`);
+              const overallBadge = ({
+                trusted:    '🟢 **신뢰 가능** — 정책 변경 내용만 검토하면 됩니다',
+                unverified: '🟡 **서명 누락** — main 도달 가능하지만 commit 서명이 없습니다',
+                suspicious: '🔴 **의심** — 위 ✗ 항목을 즉시 조사하세요',
+                unknown:    '⚪ **검증 불완전** — 네트워크/응답 문제, 수동 확인 필요',
+              })[bump.overall] || bump.overall;
+              lines.push('', overallBadge);
+              bumpSection = '\n' + lines.join('\n') + '\n';
+            }
+
+            // v0.13+: LLM assessment + 사람 액션 (AC 형식)
             let llmSection = '';
+            let actionSection = '';
             if (assessment) {
-              const focusList = (assessment.reviewer_focus || [])
-                .map(f => `- ${f}`).join('\n');
               llmSection = [
                 ``,
-                `### LLM 분석 — ${intentBadgeMap[assessment.intent] || assessment.intent}`,
+                `### 🧠 LLM 분석 — ${intentBadgeMap[assessment.intent] || assessment.intent}`,
                 ``,
                 assessment.rationale || '',
-                focusList ? `\n**리뷰자 주의:**\n${focusList}` : '',
               ].join('\n');
+              const focus = assessment.reviewer_focus || [];
+              if (focus.length) {
+                actionSection = [
+                  ``,
+                  `### 👤 사람 액션`,
+                  ``,
+                  ...focus.map(f => `- [ ] ${f}`),
+                ].join('\n');
+              }
             }
 
             const body = [
               `## ${emoji} Pre-Merge Review: \`${result.verdict}\``,
               ``,
-              `Policy: ${linkPolicyVer} (${linkPolicySha})`,
-              ``,
-              `${result.summary}`,
+              `Policy: ${linkPolicyVer} (${linkPolicySha})  ·  ${linkRun}`,
+              bumpSection,
               llmSection,
+              actionSection,
               ``,
-              `### Top findings`,
+              `<details><summary>🔍 Findings (${(result.findings || []).length})</summary>`,
+              ``,
               findings || '_(none)_',
               ``,
-              `_${linkRun}_`,
+              `</details>`,
             ].join('\n');
 
             await github.rest.issues.createComment({
