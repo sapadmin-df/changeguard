@@ -446,12 +446,34 @@ def build_slack_message(result, kind):
     if omitted:
         finding_lines.append(f"… 외 {omitted}개 finding")
 
+    # v0.13+: assessment 가 있으면 intent 배지를 verdict 라인 옆에 노출
+    intent_badge = ""
+    intent_label_map = {
+        "intentional": "✓ 의도된 변경으로 판단",
+        "suspicious":  "⚠ 의심 단서 존재",
+        "unclear":     "? 판단 보류",
+    }
+    assessment = result.get("assessment")
+    if assessment and assessment.get("intent"):
+        intent_label = intent_label_map.get(assessment["intent"], assessment["intent"])
+        intent_badge = f" · LLM: {intent_label}"
+
     text_lines = [
         f"{emoji_by_kind[kind]} *{kind}* — pre-merge review on {repo_link} @ {sha_link}",
-        f"Verdict: `{verdict}` · Policy: {policy_ver_link} ({policy_sha_link})",
+        f"Verdict: `{verdict}` · Policy: {policy_ver_link} ({policy_sha_link}){intent_badge}",
         "",
         summary.replace("\n", " · "),
     ]
+
+    # v0.13+: LLM 분석 narrative 섹션 (양치기 소년 회피)
+    if assessment and assessment.get("rationale"):
+        text_lines.append("")
+        text_lines.append(f"*LLM 분석*: {assessment['rationale']}")
+        if assessment.get("reviewer_focus"):
+            text_lines.append("*리뷰자 주의*:")
+            for f in assessment["reviewer_focus"]:
+                text_lines.append(f"  • {f}")
+
     if finding_lines:
         text_lines.append("")
         text_lines.extend(finding_lines)

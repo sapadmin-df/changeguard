@@ -75,6 +75,27 @@
     "next_action_hint": {
       "type": "string",
       "description": "Suggested next step for the user, e.g. 'git merge --ff-only FETCH_HEAD' or 'review .github/workflows/deploy.yml'"
+    },
+    "assessment": {
+      "type": "object",
+      "description": "LLM narrative 분석 (v0.13+, optional). verdict를 변경하지 *않음*. 결정론 critical은 그대로 critical로 남는다. 다만 사용자가 알림을 받았을 때 '이게 실제로 무엇인지' 즉시 판단할 수 있게 맥락을 제공한다 — 양치기 소년 문제 해소.",
+      "properties": {
+        "intent": {
+          "type": "string",
+          "enum": ["intentional", "suspicious", "unclear"],
+          "description": "intentional = diff가 일관된 의도(feature/refactor/정책 갱신)를 보이고 결정론 findings가 그 의도의 부수효과로 보임. suspicious = findings가 단순 부수효과가 아니라 그 자체가 의도로 보이거나, 결정론이 못 잡은 추가 위협 단서가 있음. unclear = 판단 근거 부족."
+        },
+        "rationale": {
+          "type": "string",
+          "description": "1-3 문장의 한국어 narrative — 이 변경의 실제 맥락. 결정론 finding을 단순 반복하지 말 것. 양치기 소년 회피: 매 알림이 고유 맥락을 가져야 함."
+        },
+        "reviewer_focus": {
+          "type": "array",
+          "items": { "type": "string" },
+          "maxItems": 5,
+          "description": "0-5개의 짧은 항목. 사람 리뷰자가 *특히* 확인해야 할 점. 의도가 명확하면 빈 배열도 가능."
+        }
+      }
     }
   }
 }

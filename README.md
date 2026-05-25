@@ -176,6 +176,51 @@ Slack 알림과 PR 코멘트 모두 다음 식별자를 클릭 가능한 GitHub 
 Slack은 `<url|text>` (mrkdwn), PR 코멘트는 `[text](url)` (markdown). 사용자가 SHA·파일
 경로를 손으로 검색하지 않도록 *통합 관리*되는 메시지.
 
+## v0.13 — LLM 분석 narrative (양치기 소년 문제 해소)
+
+`v0.12`까지의 알림은 결정론 verdict의 boilerplate("Critical 발견사항 존재 — merge
+금지.")만 반복했다. workflow 파일 변경 같은 결정론 critical은 거의 모든 PR에서
+발화하므로, 사용자가 매번 같은 메시지를 받으면 *진짜 위협일 때도* 무시하게 된다
+— 양치기 소년 문제.
+
+v0.13의 해결:
+
+- **`assessment` 객체** — `output-schema.json`에 optional top-level 필드로 추가
+  - `intent`: `intentional` / `suspicious` / `unclear` — LLM의 의도 판단
+  - `rationale`: 1-3 문장의 한국어 narrative — *이 변경*의 고유 맥락
+  - `reviewer_focus`: 사람이 특히 확인할 점 (0-5개)
+- **`llm-system-prompt.md`**에 정직성 원칙 명시: 결정론을 앵무새처럼 반복 금지,
+  각 변경의 고유 맥락을 담아라, 의도가 명백하면 명백하다고 단언, 의심스러우면
+  구체적으로.
+- **`llm-adapter.py`**가 LLM 응답에서 assessment를 파싱·sanitize. 형식 손상 시
+  fail-open (assessment 없이 v0.12 동작).
+- **Slack 메시지**: verdict 라인 옆에 intent 배지(✓/⚠/?), 본문에 LLM narrative
+  섹션과 reviewer_focus.
+- **PR 코멘트**: 동일 intent 배지 + "LLM 분석" 별도 마크다운 섹션.
+
+### 핵심 보안 모델 — 변경 *없음*
+
+LLM은 여전히 **결정론 finding을 강등/제거 못한다**. `assessment`는 verdict를
+바꾸지 않는다. block은 block. 사용자가 받는 정보가 풍부해질 뿐 권위 구조는
+그대로다.
+
+### 정직성 채널
+
+intent의 세 값은 다음을 의미한다:
+
+- `intentional` — diff가 일관된 의도(feature/refactor/정책 갱신)를 보이고
+  결정론 findings가 그 의도의 부수효과. supply chain 위협 단서 없음.
+- `suspicious` — findings가 단순 부수효과가 아니라 그 자체가 의도로 보임,
+  또는 결정론이 못 잡은 추가 단서 발견.
+- `unclear` — 판단 근거 부족 — 모호하면 정직하게 unclear로 두고 reviewer_focus에
+  사람이 확인할 점을 구체화.
+
+### 호환성
+
+- `assessment`는 schema에서 optional — v0.12 이하 소비자 영향 없음.
+- LLM이 형식 손상된 assessment를 반환하면 `sanitize_assessment()`가 None으로
+  떨어뜨려 v0.12 동작으로 자동 fallback.
+
 ## v0.12 — 갱신 자동화 template
 
 소비 repo의 `POLICY_REPO_SHA` 갱신을 사람이 직접 추적하지 않도록 `policy-bump-watcher.yml.template`을 추가했다. 매주 changeguard upstream main을 폴링해 새 SHA가 있으면:
