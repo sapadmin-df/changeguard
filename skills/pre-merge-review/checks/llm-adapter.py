@@ -68,9 +68,12 @@ def build_user_message(deterministic_findings, diff_content):
         "```diff\n"
         f"{diff_content}\n"
         "```\n\n"
-        "위 정보를 분석하여 결정론이 잡지 못한 추가 위협을 식별하십시오. "
-        "출력은 반드시 JSON 객체이며, 최상위 키 `findings`(배열)만 포함하십시오. "
-        "추가 위협이 없다면 `{\"findings\": []}` 를 반환하십시오. "
+        "위 정보를 분석하여 (1) 결정론이 잡지 못한 추가 위협을 식별하고, "
+        "(2) 결정론 findings의 *맥락*을 사람에게 narrative로 전달하십시오. "
+        "출력은 반드시 JSON 객체이며 최상위 키 두 개를 포함합니다: "
+        "`findings` (array, 추가 위협만; 없으면 []) 와 "
+        "`assessment` (object: intent + rationale + reviewer_focus). "
+        "system prompt의 'assessment' 섹션을 따르십시오. "
         "응답에 JSON 외 어떤 prose도 포함하지 마십시오."
     )
 
@@ -217,6 +220,39 @@ def annotate_deterministic(findings):
     return out
 
 
+# ---------- Assessment (v0.13+ LLM narrative) ----------
+
+ALLOWED_INTENTS = {"intentional", "suspicious", "unclear"}
+
+
+def sanitize_assessment(raw):
+    """LLM 응답의 assessment 객체를 정규화. 형식 손상시 None 반환 (호출자가 fallback)."""
+    if not isinstance(raw, dict):
+        return None
+    intent = raw.get("intent")
+    if intent not in ALLOWED_INTENTS:
+        intent = "unclear"
+    rationale = raw.get("rationale")
+    if not isinstance(rationale, str) or not rationale.strip():
+        return None  # rationale 없는 assessment는 정보 가치 없음
+    focus_raw = raw.get("reviewer_focus") or []
+    focus = []
+    if isinstance(focus_raw, list):
+        for item in focus_raw[:5]:
+            if isinstance(item, str) and item.strip():
+                focus.append(item.strip()[:200])
+    return {
+        "intent": intent,
+        "rationale": rationale.strip()[:800],
+        "reviewer_focus": focus,
+    }
+
+
+# 참고: format_assessment_for_summary는 v0.13 초안에 있었으나, summary에 narrative를
+# 직접 넣으면 PR comment(별도 LLM 섹션을 builder에서 만듦)에서 중복 표시되는 문제로
+# 제거됨. Slack과 PR comment 빌더가 각자 result["assessment"]를 형식화한다.
+
+
 # ---------- Main orchestration ----------
 
 def main():
@@ -251,6 +287,7 @@ def main():
 
     # LLM 단계
     llm_findings = []
+    llm_assessment = None
     llm_status = "skipped"
 
     if args.skip_llm:
@@ -259,6 +296,7 @@ def main():
         try:
             mock_data = json.loads(Path(args.mock).read_text())
             llm_findings = sanitize_llm_findings(mock_data.get("findings", []))
+            llm_assessment = sanitize_assessment(mock_data.get("assessment"))
             llm_status = f"mock ({args.mock})"
         except (OSError, json.JSONDecodeError) as e:
             print(f"mock load error: {e}", file=sys.stderr)
@@ -283,6 +321,7 @@ def main():
                 response = call_anthropic(system_prompt, user_msg, api_key, args.model)
                 parsed = extract_json_from_response(response)
                 llm_findings = sanitize_llm_findings(parsed.get("findings", []))
+                llm_assessment = sanitize_assessment(parsed.get("assessment"))
                 llm_status = f"api ({args.model})"
             except (urllib.error.URLError, urllib.error.HTTPError,
                     json.JSONDecodeError, OSError) as e:
@@ -322,6 +361,10 @@ def main():
     elif verdict == "advisory":
         summary_lines.append("주의 필요 — 발견사항 검토 후 명시적 승인 시에만 진행.")
 
+    # v0.13+: LLM narrative는 별도 채널(result["assessment"])로 export됨.
+    # summary는 boilerplate로 유지 — Slack/PR comment가 각자 assessment를 형식화한다.
+    # (summary 중복 첨부하면 PR comment에 narrative가 두 번 노출되는 문제 회피)
+
     # 다음 동작 힌트
     if verdict == "pass":
         next_hint = "git merge --ff-only FETCH_HEAD"
@@ -346,6 +389,9 @@ def main():
         "summary": "\n".join(summary_lines),
         "next_action_hint": next_hint,
     }
+    # v0.13+: assessment를 별도 필드로도 export (Slack/PR comment에서 구조적 접근)
+    if llm_assessment:
+        result["assessment"] = llm_assessment
 
     print(json.dumps(result, ensure_ascii=args.ascii, indent=2))
     sys.exit(1 if verdict == "block" else 0)

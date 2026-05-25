@@ -245,6 +245,17 @@ jobs:
               'workflow run'
             );
 
+            // v0.13+: LLM assessment 배지·rationale (있을 때만)
+            const intentBadgeMap = {
+              intentional: '✓ 의도된 변경으로 판단',
+              suspicious:  '⚠ 의심 단서 존재',
+              unclear:     '? 판단 보류',
+            };
+            const assessment = result.assessment;
+            const intentBadge = assessment && intentBadgeMap[assessment.intent]
+              ? ` · LLM: ${intentBadgeMap[assessment.intent]}`
+              : '';
+
             // ---- (1) PR body 상단 요약 블록 (idempotent) ----
             const SUMMARY_START = '<!-- pre-merge-summary-start -->';
             const SUMMARY_END = '<!-- pre-merge-summary-end -->';
@@ -257,7 +268,7 @@ jobs:
               s => severityCounts[s] ? `${severityCounts[s]} ${s}` : null
             ).filter(Boolean).join(', ') || '(no findings)';
 
-            const summaryLine = `> ${emoji} **[Pre-Merge ${result.verdict}]** · ${sevSummary} · policy ${linkPolicyVer} (${linkPolicySha}) · ${linkRun}`;
+            const summaryLine = `> ${emoji} **[Pre-Merge ${result.verdict}]** · ${sevSummary} · policy ${linkPolicyVer} (${linkPolicySha})${intentBadge} · ${linkRun}`;
             const summaryBlock = `${SUMMARY_START}\n${summaryLine}\n${SUMMARY_END}`;
 
             try {
@@ -289,12 +300,27 @@ jobs:
               `- **[${f.severity}]** \`${f.category}\` @ ${linkFile(repo, headSha, f.location)} — ${f.description}`
             ).join('\n');
 
+            // v0.13+: LLM assessment 전용 섹션 (양치기 소년 회피 — 매 알림이 고유 맥락)
+            let llmSection = '';
+            if (assessment) {
+              const focusList = (assessment.reviewer_focus || [])
+                .map(f => `- ${f}`).join('\n');
+              llmSection = [
+                ``,
+                `### LLM 분석 — ${intentBadgeMap[assessment.intent] || assessment.intent}`,
+                ``,
+                assessment.rationale || '',
+                focusList ? `\n**리뷰자 주의:**\n${focusList}` : '',
+              ].join('\n');
+            }
+
             const body = [
               `## ${emoji} Pre-Merge Review: \`${result.verdict}\``,
               ``,
               `Policy: ${linkPolicyVer} (${linkPolicySha})`,
               ``,
               `${result.summary}`,
+              llmSection,
               ``,
               `### Top findings`,
               findings || '_(none)_',
