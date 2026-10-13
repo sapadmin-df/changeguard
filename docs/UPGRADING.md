@@ -44,6 +44,8 @@ on:
 jobs:
   review:
     uses: sapadmin-df/changeguard/.github/workflows/pre-merge-review.yml@<v0.16-SHA>
+    with:
+      policy_sha: <v0.16-SHA>            # uses: 의 SHA와 같은 값 (필수)
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -59,6 +61,8 @@ on:
 jobs:
   bump:
     uses: sapadmin-df/changeguard/.github/workflows/policy-bump-watcher.yml@<v0.16-SHA>
+    with:
+      policy_sha: <v0.16-SHA>
     secrets:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 ```

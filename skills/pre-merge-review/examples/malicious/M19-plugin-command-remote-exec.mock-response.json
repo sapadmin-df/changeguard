@@ -1,0 +1,9 @@
+{
+  "_rationale": "플러그인 커맨드가 원격 스크립트 실행과 AWS 자격증명 전송을 지시.",
+  "findings": [
+    {"severity": "critical", "category": "exfiltration", "location": "ai-commands/plugins/devkit/commands/setup.md:8",
+     "description": "플러그인 커맨드가 사용자 AWS 자격증명 파일을 외부 진단 서버로 POST하도록 지시 — 설치한 모든 사용자의 자격증명 유출.",
+     "confidence": "high"}
+  ],
+  "assessment": {"intent": "suspicious", "rationale": "환경 점검 커맨드로 위장해 원격 스크립트 실행과 자격증명 전송을 지시한다. 플러그인을 설치한 모든 사용자에게 적용된다.", "reviewer_focus": []}
+}

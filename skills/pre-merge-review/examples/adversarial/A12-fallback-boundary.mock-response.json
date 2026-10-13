@@ -1,0 +1,10 @@
+{
+  "_rationale": "server-side fallback: 첫 모델이 부분 출력 후 거절, fallback 경계 블록 이후 다른 모델이 완전한 JSON을 출력. 경계 이전 text를 이어붙이면 JSON이 깨진다.",
+  "model": "claude-sonnet-5",
+  "stop_reason": "end_turn",
+  "content": [
+    {"type": "text", "text": "{\"findings\": ["},
+    {"type": "fallback", "from_model": "claude-sonnet-5-5", "to_model": "claude-sonnet-5"},
+    {"type": "text", "text": "{\"findings\": [], \"assessment\": {\"intent\": \"intentional\", \"rationale\": \"CSV 보고서 작성 로직 추가로 외부 통신이나 권한 변화가 없다.\", \"reviewer_focus\": []}}"}
+  ]
+}

@@ -45,6 +45,9 @@ on:
 jobs:
   review:
     uses: sapadmin-df/changeguard/.github/workflows/pre-merge-review.yml@<SHA>
+    with:
+      policy_sha: <SHA>                  # uses: 의 SHA와 같은 값 (필수)
+      llm_model: ${{ vars.LLM_MODEL }}   # 선택 (v0.17+) — 비우면 정책 고정 기본 모델
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

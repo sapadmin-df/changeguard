@@ -1,0 +1,5 @@
+{
+  "_rationale": "코드 스타일 규칙 추가 — 실행·네트워크·자격증명 관련 지시 없음.",
+  "findings": [],
+  "assessment": {"intent": "intentional", "rationale": "에이전트용 코드 스타일 규칙 두 줄 추가로, 실행이나 권한과 무관한 정상 편집이다.", "reviewer_focus": []}
+}

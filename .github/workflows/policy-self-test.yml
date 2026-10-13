@@ -8,6 +8,17 @@ on:
   push:
     branches: [main]
   pull_request:
+  # v0.17: mock-drift / model-watch 는 schedule·dispatch 에서만 돈다.
+  # v0.16까지는 job 조건만 있고 이 트리거가 없어 실제 LLM 검증이 한 번도 실행되지 않았다.
+  schedule:
+    - cron: '0 3 * * 1'   # 매주 월요일 03:00 UTC (소비자 policy-bump-watcher 09:00 보다 먼저)
+  workflow_dispatch:
+    inputs:
+      llm_model:
+        description: "mock-drift 를 이 모델로 실행 (예: model-watch 이슈의 후보 모델). 비우면 vars.LLM_MODEL 또는 정책 기본값."
+        type: string
+        required: false
+        default: ""
 
 # 정책 repo 자신의 워크플로우도 같은 규칙 적용 — pinning 강제
 concurrency:
@@ -44,6 +55,9 @@ jobs:
 
       - name: Run integrated fixture tests (with mock LLM)
         run: bash skills/pre-merge-review/examples/run-tests-integrated.sh
+
+      - name: Model selection unit tests (Models API dump, 네트워크 없음)
+        run: python3 skills/pre-merge-review/examples/test_model_select.py
 
   # ---------- Job 3: Bootstrap script 사전 검증 ----------
   # bootstrap-consumer.sh가 syntax/help/dry-run에서 정상 동작하는지.
@@ -121,13 +135,20 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y -qq jq
 
       - name: Verify mock vs production LLM
+        id: drift
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python3 skills/pre-merge-review/examples/verify-mock-vs-production.py
+          LLM_MODEL: ${{ inputs.llm_model || vars.LLM_MODEL || '' }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::warning::ANTHROPIC_API_KEY secret 미설정 — mock-drift 생략"
+            exit 0
+          fi
+          python3 skills/pre-merge-review/examples/verify-mock-vs-production.py
         continue-on-error: true  # drift는 정보 — 실패가 정책 변경을 막으면 안 됨
 
       - name: Notify on drift
-        if: failure()
+        if: steps.drift.outcome == 'failure'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
@@ -135,4 +156,75 @@ jobs:
             curl -X POST -H 'Content-type: application/json' \
               --data '{"text":"📊 Mock vs Production drift detected in changeguard. Review mock responses or investigate LLM behavior change."}' \
               "$SLACK_WEBHOOK_URL"
+          fi
+
+  # ---------- 새 Sonnet 감지 (v0.17) ----------
+  # 검사 모델도 정책의 일부 — 기본값은 model_select.py DEFAULT_MODEL 에 고정한다.
+  # 자동 추종 대신 Models API로 더 새로운 Sonnet(또는 기본 모델의 폐기)을 감지해
+  # 이슈를 연다. 사람은 이슈 안내대로 후보 모델로 mock-drift 를 돌려본 뒤 기본값 변경 PR을 merge.
+  model-watch:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    timeout-minutes: 5
+    steps:
+      # actions/checkout v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Check for newer Sonnet
+        id: watch
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::warning::ANTHROPIC_API_KEY secret 미설정 — model-watch 생략"
+            exit 0
+          fi
+          set +e
+          python3 skills/pre-merge-review/checks/model_select.py check-newer > /tmp/model-watch.json
+          rc=$?
+          set -e
+          cat /tmp/model-watch.json
+          case "$rc" in
+            0)  echo "::notice::기본 모델이 최신 Sonnet — 조치 불필요" ;;
+            10) echo "action=1" >> "$GITHUB_OUTPUT" ;;
+            *)  echo "::warning::Models API 조회 실패 (rc=$rc) — 다음 주기에 재시도"; exit 0 ;;
+          esac
+
+      - name: Open or update model-watch issue
+        if: steps.watch.outputs.action == '1'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          pinned=$(jq -r .pinned /tmp/model-watch.json)
+          latest=$(jq -r '.latest // "?"' /tmp/model-watch.json)
+          if [ "$(jq -r .pinned_usable /tmp/model-watch.json)" != "true" ]; then
+            title="LLM 기본 모델 ${pinned} 이 Models API에서 사용 불가 (폐기/미등록)"
+          else
+            title="LLM 기본 모델 갱신 후보: ${latest} (현재 ${pinned})"
+          fi
+          {
+            echo "model-watch 가 Models API에서 감지했습니다."
+            echo
+            echo '```json'
+            cat /tmp/model-watch.json
+            echo '```'
+            echo
+            echo "### 갱신 절차"
+            echo "1. Actions → policy-self-test → Run workflow, \`llm_model\` = \`${latest}\` 로 실행해 mock-drift 결과 확인"
+            echo "2. \`skills/pre-merge-review/checks/model_select.py\` 의 \`DEFAULT_MODEL\` 을 \`${latest}\` 로 바꾸는 PR"
+            echo "   — 새 세대 모델이면 stop_reason/thinking/파라미터 변경점을 함께 확인 (README v0.17 참고)"
+            echo "3. merge 후 VERSION·README 갱신, 소비자는 policy-bump-watcher 갱신 PR로 반영"
+          } > /tmp/issue-body.md
+          gh label create model-watch --repo "$REPO" --color 1e7eb6 \
+            --description "LLM 기본 모델 갱신 후보" --force >/dev/null
+          existing=$(gh issue list --repo "$REPO" --label model-watch --state open \
+                       --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$REPO" --body-file /tmp/issue-body.md
+          else
+            gh issue create --repo "$REPO" --title "$title" --label model-watch --body-file /tmp/issue-body.md
           fi

@@ -1,0 +1,13 @@
+diff --git a/.github/workflows/pre-merge-review.yml b/.github/workflows/pre-merge-review.yml
+index 1111111..2222222 100644
+--- a/.github/workflows/pre-merge-review.yml
++++ b/.github/workflows/pre-merge-review.yml
+@@ -16,7 +16,7 @@ permissions:
+ jobs:
+   review:
+-    uses: sapadmin-df/changeguard/.github/workflows/pre-merge-review.yml@059593b84fc338a24648e5470fdf0d9210b95913
++    uses: sapadmin-df/changeguard/.github/workflows/pre-merge-review.yml@099234914b8f2d63b6386e08fd189236774937a2
+     with:
+-      policy_sha: 059593b84fc338a24648e5470fdf0d9210b95913
++      policy_sha: 099234914b8f2d63b6386e08fd189236774937a2
+     secrets:

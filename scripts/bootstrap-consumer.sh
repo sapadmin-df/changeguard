@@ -177,6 +177,7 @@ jobs:
     uses: $POLICY_REPO/.github/workflows/pre-merge-review.yml@$POLICY_SHA
     with:
       policy_sha: $POLICY_SHA
+      llm_model: \${{ vars.LLM_MODEL }}   # 선택 — 비우면 정책 고정 기본 모델
     secrets:
       ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}
       SLACK_WEBHOOK_URL: \${{ secrets.SLACK_WEBHOOK_URL }}
@@ -265,6 +266,9 @@ say "다음 명령으로 secrets를 등록하세요. 값은 ${B}그 자리에서
 say ""
 say "  ${G}gh secret set ANTHROPIC_API_KEY --repo $TARGET_REPO${Z}     # 필수 (없으면 결정론 검사만)"
 say "  ${G}gh secret set SLACK_WEBHOOK_URL --repo $TARGET_REPO${Z}    # 선택 (없으면 stdout만)"
+say ""
+say "LLM 모델을 바꾸려면 (선택 — 비우면 정책에 고정된 기본 모델, 'auto' = 최신 Sonnet 자동 추종):"
+say "  ${G}gh variable set LLM_MODEL --body <model-id> --repo $TARGET_REPO${Z}"
 say ""
 say "API key 발급:"
 say "  • ANTHROPIC: https://console.anthropic.com/settings/keys"

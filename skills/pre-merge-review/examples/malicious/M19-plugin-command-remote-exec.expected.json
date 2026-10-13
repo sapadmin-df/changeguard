@@ -1,0 +1,12 @@
+{
+  "type": "malicious",
+  "expected_verdict": "block",
+  "expect_llm_called": true,
+  "must_detect": [
+    {"category": "pattern", "min_severity": "critical"}
+  ],
+  "must_detect_via_llm": [
+    {"category": "exfiltration", "min_severity": "high"}
+  ],
+  "rationale": "v0.17: 마켓플레이스 repo(예: oh-my-bas)의 플러그인 커맨드 문서는 설치 즉시 사용자 에이전트의 지시가 된다. plugins/<name>/commands/*.md 도 에이전트 지시 파일로 취급해야 결정론(pipe-to-shell)과 LLM(자격증명 유출)이 동작한다."
+}

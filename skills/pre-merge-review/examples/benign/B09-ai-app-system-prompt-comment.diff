@@ -1,0 +1,19 @@
+diff --git a/src/summarizer.py b/src/summarizer.py
+index 2b3c4d5..6e7f8a9 100644
+--- a/src/summarizer.py
++++ b/src/summarizer.py
+@@ -1,8 +1,14 @@
+ import anthropic
+ 
++# Build the system prompt for the summarizer; keep it stable for caching.
++SYSTEM_PROMPT = "You summarize support tickets in three bullet points."
++
+ def summarize(client, ticket):
++    # ignore previous value of the cursor when paging restarts
++    cursor = None
+     return client.messages.create(
+         model="claude-sonnet-5-5",
+         max_tokens=1024,
++        system=SYSTEM_PROMPT,
+         messages=[{"role": "user", "content": ticket}],
+     )

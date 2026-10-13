@@ -90,6 +90,12 @@ for fixture in "${FIXTURES[@]}"; do
     echo "${YELLOW}SKIP${RESET} $name (no expected.json)"
     continue
   fi
+  # caller_level: 기대 결과가 ci-caller 단계(예: SHA-only swap 강등)에 의존 —
+  # 결정론 단독으로는 판정 불가. run-tests-integrated.sh가 검증한다.
+  if [[ "$(jq -r '.caller_level // false' "$expected_file")" == "true" ]]; then
+    echo "  ${YELLOW}SKIP${RESET}  $name (caller_level — integrated 테스트에서 검증)"
+    continue
+  fi
 
   findings=$("$CHECKER" "$fixture" 2>/dev/null || echo "[]")
   computed_verdict=$(compute_verdict "$findings")
@@ -123,7 +129,7 @@ for fixture in "${FIXTURES[@]}"; do
       found=$(echo "$findings" | jq --arg c "$req_cat" --arg s "$req_min" \
         '[.[] | select(.category==$c)] | map(.severity) | unique')
       satisfied=false
-      for s in $(echo "$found" | jq -r '.[]?'); do
+      for s in $(echo "$found" | jq -r '.[]?' | tr -d '\r'); do   # Windows jq CRLF
         if [[ $(sev_rank "$s") -ge "$req_min_rank" ]]; then satisfied=true; break; fi
       done
       if ! $satisfied; then

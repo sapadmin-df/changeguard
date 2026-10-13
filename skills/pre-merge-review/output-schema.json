@@ -119,6 +119,14 @@
         }
       }
     },
+    "llm_model": {
+      "type": "string",
+      "description": "v0.17+. 실제 응답한 LLM 모델 id (server-side fallback 시 요청 모델과 다를 수 있음). LLM을 호출한 경우에만 존재."
+    },
+    "llm_model_source": {
+      "type": "string",
+      "description": "v0.17+. 모델 선택 출처: 'default (pinned)' = 정책 고정 기본값, 'explicit' = LLM_MODEL/vars.LLM_MODEL 지정, 'auto (models api)' = Models API 최신 Sonnet, 'auto-fallback (...)' = auto 조회 실패로 기본값 사용."
+    },
     "assessment": {
       "type": "object",
       "description": "LLM narrative 분석 (v0.13+, optional). verdict를 변경하지 *않음*. 결정론 critical은 그대로 critical로 남는다. 다만 사용자가 알림을 받았을 때 '이게 실제로 무엇인지' 즉시 판단할 수 있게 맥락을 제공한다 — 양치기 소년 문제 해소.",

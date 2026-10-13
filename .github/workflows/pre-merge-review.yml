@@ -12,9 +12,20 @@
 #     jobs:
 #       review:
 #         uses: sapadmin-df/changeguard/.github/workflows/pre-merge-review.yml@<SHA>
+#         with:
+#           policy_sha: <SHA>
+#           llm_model: ${{ vars.LLM_MODEL }}   # v0.17+ 선택 — 비우면 정책 기본 모델
 #         secrets:
 #           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 #           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+#
+#   LLM 모델 (v0.17+):
+#     - 기본값은 정책에 *고정*된 모델 (skills/pre-merge-review/checks/model_select.py
+#       DEFAULT_MODEL). 정책 SHA를 올릴 때 함께 바뀐다 — 모델 변경도 PR+fixture 검증을 거친다.
+#     - 소비자 repo variable LLM_MODEL 로 덮어쓸 수 있다:
+#         gh variable set LLM_MODEL --body claude-sonnet-5-5 --repo <owner/repo>
+#       'auto' 를 넣으면 실행 시 Models API로 최신 Sonnet을 고른다 (opt-in, 실패 시 기본값).
+#     - 실제 사용된 모델은 결과 JSON의 llm_model / llm_model_source 와 LLM status에 남는다.
 #
 #   소비자가 작성할 분량은 5-10줄. 모든 게이트 로직은 이 reusable workflow 안에.
 #   "uses: ...@<SHA>" 의 SHA는 changeguard main의 commit SHA — 명시적 갱신만 허용
@@ -36,6 +47,11 @@ on:
         type: string
         required: false
         default: "sapadmin-df/changeguard"
+      llm_model:
+        description: "LLM 모델 id 또는 'auto' (v0.17+). 보통 호출자 repo variable LLM_MODEL 을 전달. 비우면 vars.LLM_MODEL, 그것도 없으면 정책 고정 기본값."
+        type: string
+        required: false
+        default: ""
     secrets:
       ANTHROPIC_API_KEY:
         description: "Claude API 키 — 없으면 결정론 검사만 수행."
@@ -148,6 +164,8 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          # 입력 우선, 없으면 vars (호출 repo의 variable이 보이는 경우) → 둘 다 없으면 정책 기본값
+          LLM_MODEL: ${{ inputs.llm_model || vars.LLM_MODEL || '' }}
           POLICY_PATH: ${{ github.workspace }}/.policy
           BASE_REF: ${{ env.base_sha }}
           INCOMING_REF: ${{ env.incoming_sha }}

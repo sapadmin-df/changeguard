@@ -1,0 +1,7 @@
+{
+  "_rationale": "Messages API 응답 형태 mock. Sonnet 5.x 안전 분류기가 악성 코드가 섞인 diff 분석을 거절한 경우 (stop_reason=refusal, content 비어 있음).",
+  "model": "claude-sonnet-5-5",
+  "stop_reason": "refusal",
+  "stop_details": {"type": "refusal", "category": "cyber", "explanation": null},
+  "content": []
+}

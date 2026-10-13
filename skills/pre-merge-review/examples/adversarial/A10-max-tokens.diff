@@ -1,0 +1,10 @@
+diff --git a/src/report.js b/src/report.js
+index 4a5b6c7..8d9e0f1 100644
+--- a/src/report.js
++++ b/src/report.js
+@@ -3,4 +3,7 @@ const fs = require("fs");
+ function writeReport(rows) {
++  const header = Object.keys(rows[0] || {}).join(",");
++  const body = rows.map(r => Object.values(r).join(",")).join("\n");
++  fs.writeFileSync("report.csv", header + "\n" + body);
+ }

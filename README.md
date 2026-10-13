@@ -55,7 +55,7 @@ CI(GitHub Actions)가 *동일한 정책*으로 incoming 변경을 검증합니�
         │   ├── llm-adapter.py           LLM 호출 + sanitize + 통합
         │   └── ci-caller.py             CI 워크플로우 진입점 (gating + Slack)
         ├── output-schema.json           로컬/CI 공용 JSON 계약
-        └── examples/                    Fixture corpus (34개) + test runner
+        └── examples/                    Fixture corpus (45개) + test runner
 ```
 
 `checks/`의 엔진(`deterministic.sh`, `llm-adapter.py`, `ci-caller.py`)은 게이트에
@@ -96,7 +96,7 @@ working tree가 오염되지 않습니다.
 2. CI(`policy-self-test.yml`)가 자동 실행:
    - `verify-workflow-pins.sh` — workflow 자신의 SHA pinning 검증
    - `run-tests.sh` — 결정론 fixture 회귀 (25개)
-   - `run-tests-integrated.sh` — 통합 fixture 회귀 (34개)
+   - `run-tests-integrated.sh` — 통합 fixture 회귀 (45개)
    - (schedule trigger 시) `verify-mock-vs-production.py` — mock drift 검증
 3. CODEOWNERS 승인
 4. `VERSION` 파일 갱신 (SemVer)
@@ -136,6 +136,67 @@ git config commit.gpgsign true
 SSH and GPG keys — Authentication Key와는 별도 항목). GitHub의 SSH 공개키는
 계정당 유일하므로, 여러 계정으로 기여한다면 계정마다 별도의 키가 필요하다.
 
+## v0.17 — LLM 계층 정비: 모델 정책 + 조용한 통과 차단
+
+AI 계층 점검에서 "LLM 분석이 실제로는 없었는데 pass로 나가는" 경로와, 결정론·LLM을
+모두 우회하는 경로가 확인되어 함께 정리했다. 각 항목은 fixture로 회귀를 고정한다.
+
+### 모델 정책 — 기본값 고정 + 신규 모델 감지 자동화
+
+- 기본 모델 `claude-sonnet-4-6` → **`claude-sonnet-5-5`** (`checks/model_select.py`
+  `DEFAULT_MODEL`). Sonnet 5.5는 더 싸다 (100만 토큰당 입력 $2 / 출력 $10, 4.6은 $3 / $15).
+- **자동 추종을 기본으로 하지 않는다.** 세대가 바뀌면 API 동작이 달라지고(아래),
+  정책은 SHA 고정 + PR·fixture 검증을 거치는데 검사 모델만 리뷰 없이 바뀌면 안 된다.
+- 대신 `policy-self-test.yml` `model-watch` job이 매주 Models API(`GET /v1/models`)를
+  조회해 기본값보다 새로운 Sonnet(또는 기본 모델 폐기)을 감지하면 `model-watch` 라벨
+  이슈를 연다. 사람은 `workflow_dispatch`의 `llm_model` 입력으로 후보 모델의
+  mock-drift를 돌려 본 뒤 기본값 변경 PR을 merge한다. 대가는 출시 후 며칠의 지연.
+- 소비자 커스텀: repo variable `LLM_MODEL` → reusable workflow 입력 `llm_model`.
+  `auto`는 실행 시 최신 Sonnet을 고르는 opt-in (조회 실패 시 기본값 폴백).
+  실제 사용 모델은 결과 JSON `llm_model` / `llm_model_source`와 LLM status에 남는다.
+
+### Sonnet 5.x 대응 — 어댑터
+
+| 변화 | v0.16 동작 | v0.17 |
+|---|---|---|
+| adaptive thinking 기본 — 사고 토큰이 출력 한도를 함께 씀 | `max_tokens` 4096 → JSON 잘림 → 파싱 실패 | `max_tokens` 16000, timeout 300s, `stop_reason: max_tokens` 별도 보고 (A10) |
+| 안전 분류기 거절 `stop_reason: refusal` (악성 diff 분석은 cyber 범주에 걸릴 수 있음) | 빈 응답 → 파싱 실패 → low → **pass** | `fallbacks: "default"` 로 서버측 재시도, 그래도 거절이면 category와 함께 medium (A09) |
+| server-side fallback 경계 블록 | — | 경계 이후 text만 파싱 (A12) |
+| 응답 JSON을 ` ```json ` 펜스·설명문과 섞어 반환 (실측: 대형 리팩터 B07에서 간헐적 파싱 실패) | 자유 텍스트 regex 추출 | **structured outputs** (`output_config.format` JSON schema)로 강제, 미지원 모델은 스키마 없이 재요청 |
+| category를 `meta`로 뭉뚱그림 (실측: pipe-to-shell을 `critical/meta`로 보고) — system prompt가 목록을 주지 않았음 | 알림에서 위협 종류 소실 | system prompt에 category 목록·의미 명시, 스키마 enum으로 제한 |
+| severity 기준이 프롬프트에 없어 모델마다 보정이 다름 (실측: `setcap cap_sys_admin`·logic bomb 트리거·lockfile typosquat을 high로 → advisory) | critical만 block이므로 차단 누락 | verdict와 연결된 severity 기준(critical/high/medium/low)을 system prompt에 명시 |
+
+**실측 검증** (2026-10-13, `claude-sonnet-5-5`, mock이 있는 비-adversarial fixture 30개):
+`verify-mock-vs-production.py` 계약 충족 30/30 (최종 수정 후 drift였던 M05·M11·M12·M14 재검증 포함).
+M12·M15·M19 일부 실행은 Sonnet 5.5 분류기 거절 → 서버측 fallback으로 `claude-sonnet-5`가
+응답했으며 verdict는 동일했다 (결과의 `llm_model`로 확인 가능).
+
+모든 "LLM 분석 없음" 상황(호출 실패·거절·잘림·파싱 실패·diff 상한 초과)은 이제
+`meta` **medium** → advisory다. 파싱 실패가 low(→ pass)였던 것이 결정론 0인 코드
+diff에서 조용한 통과 경로였다 (A11). 일시 오류(429/5xx/529)는 2회 재시도한다.
+
+### 버그 수정
+
+| # | 문제 | 수정 | fixture |
+|---|---|---|---|
+| 1 | `mock-drift` job 조건(`schedule`/`workflow_dispatch`)에 대응하는 트리거가 `on:`에 없어 실제 LLM 검증이 **한 번도 실행되지 않음**. drift 알림도 `continue-on-error` 때문에 `failure()`가 발동 불가 | 트리거 추가, `steps.drift.outcome` 으로 알림 | — |
+| 2 | AI 에이전트 지시 파일(CLAUDE.md, 플러그인 commands/agents/skills 문서 등)이 .md 제외 규칙에 걸려 결정론·LLM 모두 skip — `CLAUDE.md`에 `curl \| bash` 지시를 넣어도 pass | 에이전트 지시 파일은 코드로 취급 (패턴 검사 + LLM 게이팅). system prompt에 판정 기준 추가 | M17, B08, M19, B10 |
+| 3 | injection 키워드 검사가 대소문자 구분 — 소문자 "ignore previous instructions"가 결정론 통과 | 명령문 형태 패턴을 대소문자 무시로 추가 (명사형 `system prompt`는 오탐 방지로 유지) | M18, B09 |
+| 4 | SHA-only swap 강등(v0.11)이 `source` 필드 없는 결정론 출력에서 **한 번도 발동하지 않음** — 소비자 bump PR이 workflow critical로 block | 결정론 원본 출력도 대상에 포함 | E04 |
+| 5 | 빈 추가 라인(`+`)을 줄 번호에 세지 않아 그 뒤 file:line location이 밀림 (v0.15) | 줄 번호 계산 수정 | M17 |
+| 6 | diff를 ` ``` ` 펜스로 감싸 diff 안의 ` ``` `로 데이터 경계 탈출 가능 | 요청마다 다른 nonce 태그로 diff·결정론 findings를 감쌈 | — |
+| 7 | 통합 테스트 러너가 게이팅을 awk로 재구현 (caller와 drift 위험), Windows `jq` CRLF로 오탐 실패 | `ci-caller.should_call_llm`을 직접 호출, CR 제거 | — |
+
+`verify-mock-vs-production.py`는 mock과의 *정확 일치* 대신 **expected.json 계약 충족**을
+실패 기준으로 바꿨다 (비결정적 모델에서 서명 일치는 정보로만 표시). adversarial/ 은
+일부러 틀린 응답이므로 대상에서 제외한다.
+
+### 소비자 영향
+
+- 입력 `llm_model`은 선택 — 기존 소비자 워크플로우는 수정 없이 동작한다.
+  policy-bump-watcher 갱신 PR을 merge하면 새 기본 모델과 수정 사항이 적용된다.
+- 에이전트 지시 파일 변경 PR은 이제 LLM 검토를 받는다 (호출 비용 소폭 증가).
+
 ## v0.16 — Reusable workflow + 자동 온보딩 (한 명령)
 
 v0.15까지의 소비자 워크플로우는 100+ 줄의 `.template` 파일을 복사하고 4-6개
@@ -158,6 +219,9 @@ on:
 jobs:
   review:
     uses: sapadmin-df/changeguard/.github/workflows/pre-merge-review.yml@<SHA>
+    with:
+      policy_sha: <SHA>                  # uses: 의 SHA와 같은 값 (필수)
+      llm_model: ${{ vars.LLM_MODEL }}   # 선택 (v0.17+) — 비우면 정책 고정 기본 모델
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
