@@ -15,7 +15,12 @@ set -uo pipefail
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 CHECKER="$SCRIPT_DIR/../checks/deterministic.sh"
 ADAPTER="$SCRIPT_DIR/../checks/llm-adapter.py"
+CALLER="$SCRIPT_DIR/../checks/ci-caller.py"
 FIXTURE_ROOT="$SCRIPT_DIR"
+
+# Windows용 jq는 CRLF를 출력한다 — `for s in $(jq -r ...)` 가 "critical\r"을 받아
+# sev_rank 0이 되는 오탐을 막는다 (Linux에서는 no-op).
+jq() { command jq "$@" | tr -d '\r'; }
 
 [[ -x "$CHECKER" ]] || { echo "ERROR: checker not executable: $CHECKER" >&2; exit 2; }
 [[ -x "$ADAPTER" ]] || { echo "ERROR: adapter not executable: $ADAPTER" >&2; exit 2; }
@@ -81,35 +86,21 @@ for fixture in "${FIXTURES[@]}"; do
   det_findings_file=$(mktemp)
   "$CHECKER" "$fixture" > "$det_findings_file" 2>/dev/null
 
-  # 1.5. 게이팅 시뮬레이션 (SKILL.md 2단계 규칙)
-  # caller가 production에서 LLM을 호출할지 결정하는 로직을 동일하게 적용.
-  # 이것 없이는 mock 호출이 production 실제 동작과 어긋날 수 있다.
-  det_crit=$(jq '[.[] | select(.severity=="critical")] | length' "$det_findings_file")
-  det_high=$(jq '[.[] | select(.severity=="high" or .severity=="medium")] | length' "$det_findings_file")
-  # diff에 코드 파일 변경이 있는가? (markdown/lockfile/binary가 아닌 파일)
-  has_code_change=$(awk '
-    /^diff --git/ {
-      # b/<path> 추출
-      match($0, /b\/[^ "]+/)
-      if (RSTART) {
-        path = substr($0, RSTART+2, RLENGTH-2)
-        # markdown/lockfile/binary 패턴 제외
-        if (path !~ /\.(md|markdown)$/ &&
-            path !~ /(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|uv\.lock|poetry\.lock|Cargo\.lock|pom\.xml|Gemfile\.lock|go\.sum|composer\.lock)$/) {
-          found = 1
-        }
-      }
-    }
-    # binary는 별도 형식이라 위에서 잡힘 (확장자 기반 휴리스틱)
-    END { print (found ? "1" : "0") }
-  ' "$fixture")
-
-  should_call_llm="no"
-  if [[ "$det_crit" -gt 0 || "$det_high" -gt 0 ]]; then
-    should_call_llm="yes"
-  elif [[ "$has_code_change" == "1" ]]; then
-    should_call_llm="yes"
-  fi
+  # 1.5. 게이팅 (SKILL.md 2단계 규칙)
+  # v0.17: production(ci-caller.py)의 강등·게이팅 함수를 *그대로* 호출한다.
+  # 이전엔 awk로 재구현해 두어 caller와 어긋날 수 있었다 (에이전트 지시 파일 등).
+  should_call_llm=$(python3 - "$CALLER" "$fixture" "$det_findings_file" <<'PYEOF'
+import importlib.util, json, sys
+caller, diff_path, det_path = sys.argv[1:4]
+spec = importlib.util.spec_from_file_location("ci_caller", caller)
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+diff = open(diff_path, encoding="utf-8", errors="replace").read()
+det = m.downgrade_sha_only_workflow_findings(diff, json.load(open(det_path, encoding="utf-8")))
+json.dump(det, open(det_path, "w", encoding="utf-8"))
+print("yes" if m.should_call_llm(det, diff)[0] else "no")
+PYEOF
+)
+  should_call_llm_bool=$([[ "$should_call_llm" == "yes" ]] && echo true || echo false)
 
   # 2. 어댑터로 통합 (gating 시뮬레이션 반영)
   if [[ -f "$mock_file" && "$should_call_llm" == "yes" ]]; then
@@ -191,6 +182,32 @@ for fixture in "${FIXTURES[@]}"; do
         reasons+=("description length $actual_max > limit $max_desc_len")
       fi
     fi
+    # v0.17: 비-malicious fixture도 must_detect 지원 (예: refusal → meta medium)
+    while IFS= read -r req; do
+      [[ -z "$req" ]] && continue
+      req_cat=$(echo "$req" | jq -r '.category')
+      req_min_rank=$(sev_rank "$(echo "$req" | jq -r '.min_severity')")
+      found_sevs=$(echo "$result" | jq --arg c "$req_cat" '[.findings[] | select(.category==$c) | .severity] | unique')
+      satisfied=false
+      for s in $(echo "$found_sevs" | jq -r '.[]?'); do
+        if [[ $(sev_rank "$s") -ge "$req_min_rank" ]]; then satisfied=true; break; fi
+      done
+      $satisfied || { ok=false; reasons+=("missing required: $req (found: $found_sevs)"); }
+    done < <(jq -c '(.must_detect // [])[]' "$expected_file")
+  fi
+
+  # v0.17 공통 assertion
+  # - min_verdict: verdict 하한 (refusal/잘림이 조용히 pass로 새지 않는지)
+  # - expect_llm_called: 게이팅 결과 고정 (에이전트 지시 파일은 LLM 호출, 순수 문서는 skip)
+  min_verdict=$(jq -r '.min_verdict // empty' "$expected_file")
+  if [[ -n "$min_verdict" && $(verdict_rank "$computed_verdict") -lt $(verdict_rank "$min_verdict") ]]; then
+    ok=false
+    reasons+=("verdict $computed_verdict < min_verdict $min_verdict")
+  fi
+  expect_llm=$(jq -r 'if has("expect_llm_called") then .expect_llm_called|tostring else empty end' "$expected_file")
+  if [[ -n "$expect_llm" && "$expect_llm" != "$should_call_llm_bool" ]]; then
+    ok=false
+    reasons+=("gating: expect_llm_called=$expect_llm but caller decided call_llm=$should_call_llm_bool")
   fi
 
   if $ok; then

@@ -1,0 +1,7 @@
+{
+  "type": "adversarial",
+  "min_verdict": "advisory",
+  "max_severity_allowed": "medium",
+  "must_detect": [{"category": "meta", "min_severity": "medium"}],
+  "rationale": "v0.17: 파싱 실패는 LLM 분석 부재 — low(pass)가 아니라 medium(advisory). 'Approved' 같은 prose가 verdict를 pass로 만들 수 없어야 한다."
+}

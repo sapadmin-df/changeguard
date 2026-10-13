@@ -1,0 +1,5 @@
+{
+  "_rationale": "정책 SHA 두 곳 동시 교체 — 신규 SHA의 신뢰성은 policy-bump-verify가 별도 확인.",
+  "findings": [],
+  "assessment": {"intent": "intentional", "rationale": "정책 SHA 갱신 PR로 uses 와 policy_sha 두 값만 같은 SHA로 바뀌었다.", "reviewer_focus": []}
+}

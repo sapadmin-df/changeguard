@@ -1,0 +1,7 @@
+{
+  "type": "edge",
+  "expected_verdict": "pass",
+  "max_severity_allowed": "low",
+  "caller_level": true,
+  "rationale": "v0.17 회귀 고정. 소비자 bump PR(SHA 값만 교체)은 v0.11 SHA-only swap 강등으로 workflow critical→low 되어야 한다. deterministic.sh 출력에 source 필드가 없어 v0.16까지 강등이 한 번도 발동하지 않았고 bump PR이 block됐다."
+}

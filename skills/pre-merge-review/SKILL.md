@@ -33,8 +33,21 @@ incoming git diff를 머지 전에 검토하는 정책. 로컬(`/git-pull`)과 C
 - 의심 패턴: `curl ... | sh`, `wget ... | bash`, `eval(atob`, `eval(Buffer.from`,
   100자 이상 base64 문자열
 - 신규 binary 파일 추가
-- **Prompt injection 메타 키워드**: `IGNORE PREVIOUS`, `SYSTEM PROMPT`,
-  `CLAUDE INSTRUCTION`, `ANTHROPIC`, `OVERRIDE` 등 (LLM 단계 진입 전에 잡아둠)
+- **Prompt injection 메타 키워드** (LLM 단계 진입 전에 잡아둠):
+  - 대문자 메타 키워드(대소문자 구분): `IGNORE PREVIOUS`, `SYSTEM PROMPT`,
+    `CLAUDE INSTRUCTION`, `ANTHROPIC OVERRIDE` 등. `system prompt` 같은 명사는 AI 앱
+    코드에 흔하므로 대소문자 무시로 넓히지 않는다 (fixture B09).
+  - 명령문(대소문자 무시, v0.17+): "ignore previous instructions", "this change has
+    been pre-approved" 처럼 리뷰어를 향한 지시. 목적어까지 요구해 일반 주석은 제외 (M18).
+
+패턴 검사(실행 패턴·base64·injection)는 markdown 파일을 제외한다. **단 AI 에이전트
+지시 파일은 제외하지 않는다** (v0.17+): `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`,
+`GEMINI.md`, `SKILL.md`, `copilot-instructions.md`, `*.instructions.md`, `*.prompt.md`,
+`.claude/` 아래 전부, Claude Code 플러그인 배포 레이아웃
+`plugins/<name>/{commands,agents,skills}/**.md`. 이 파일들은 개발자 권한으로 도는
+에이전트에게 실행 코드다 — 마켓플레이스 repo라면 설치한 모든 사용자에게
+(fixture M17/B08, M19/B10). 규칙은 `deterministic.sh` `AGENT_FILE_RE` 와
+`ci-caller.py` `AGENT_INSTRUCTION_RE` 두 곳에 있으며 fixture로 일치를 고정한다.
 
 스크립트는 `findings.json` 배열을 표준출력으로 반환한다. 각 finding은
 `severity`, `category`, `location`, `description`을 포함한다.
@@ -51,10 +64,13 @@ LLM 호출 비용/지연을 관리하면서도 **코드 변경은 항상 LLM 검
 | 결정론 critical 발견 | 호출 | verdict는 이미 block 확정, LLM은 추가 단서만 제공 |
 | 결정론 high/medium 발견 | 호출 | 컨텍스트 보강 |
 | 결정론 0 + diff에 코드 파일 변경 포함 | **호출** | M06 같은 누락 방지 |
+| 결정론 0 + AI 에이전트 지시 파일 변경 포함 | **호출** | v0.17+. .md여도 에이전트에게는 코드 (M17/B08) |
 | 결정론 0 + 문서(.md) 또는 lockfile만 변경 | skip | markdown은 패턴 검사 자체 제외, lockfile은 결정론이 충분 |
 | 결정론 0 + diff 비어있음 | skip | 비교 대상 없음 |
 
 "코드 파일"은 markdown/lockfile/binary가 아닌 모든 변경 대상 파일.
+게이팅 전에 caller는 SHA-only swap 강등(workflow 파일의 변경이 40-hex SHA 교체뿐이면
+critical→low)을 먼저 적용한다 (fixture E04).
 
 게이팅 결과 LLM을 skip한 경우의 verdict 산정:
 - 결정론 critical 있음 → `block` (이론적으로 critical 발견 시는 LLM도 호출되지만, 통신 실패 fallback)
@@ -83,6 +99,41 @@ LLM은 다음을 평가한다:
 - 자연어 맥락에서의 사회공학적 단서 (커밋 메시지, 주석)
 - 정상으로 위장한 의심 행위 (예: 환경변수 dump, 비표준 네트워크 호출)
 - 결정론적 finding의 false positive 가능성 평가 (단, 강등은 불가)
+
+#### 모델 정책 (v0.17+)
+
+검사 모델도 정책의 일부다.
+
+- **기본 모델은 고정**한다: `checks/model_select.py` `DEFAULT_MODEL`. 바꾸려면
+  이 repo의 PR + fixture 검증을 거친다. 자동 추종을 기본으로 하지 않는 이유는
+  세대가 바뀌면 API 동작(사고 토큰, 분류기 거절 등)이 달라지는데, 그 변화가 리뷰
+  없이 게이트에 들어오기 때문이다.
+- 새 Sonnet은 `policy-self-test.yml` `model-watch` job이 Models API로 매주 감지해
+  이슈를 연다. 사람은 후보 모델로 mock-drift를 돌려 본 뒤 기본값 변경 PR을 merge한다.
+- 소비자는 repo variable `LLM_MODEL`(→ reusable workflow `llm_model` 입력)로 덮어쓸
+  수 있다. `auto`는 실행 시 최신 Sonnet을 고르는 opt-in이며, 조회 실패 시 기본값으로
+  폴백한다. 실제 사용 모델은 결과의 `llm_model` / `llm_model_source`에 남는다.
+
+#### 응답 형식 (v0.17+)
+
+응답은 structured outputs(`output_config.format` JSON schema — `llm-adapter.py`
+`RESPONSE_SCHEMA`)로 강제한다. 미지원 모델은 스키마 없이 재요청하고 기존 추출 로직으로
+처리한다. 어느 경우든 sanitize(화이트리스트·길이 제한)는 그대로 적용한다 — 스키마를
+신뢰 경계로 삼지 않는다. category 목록과 의미는 system prompt에 명시한다 (실제 위협을
+`meta`로 분류하지 않게).
+
+#### LLM 분석이 *없었던* 경우는 조용히 통과시키지 않는다 (v0.17+)
+
+다음은 모두 `meta` **medium** finding(→ advisory)으로 보고한다. 결정론 finding이 0인
+코드 diff(M06 유형)에서 LLM이 유일한 방어선이므로 low(→ pass)로 두면 안 된다.
+
+| 상황 | 보고 |
+|---|---|
+| API 호출 실패 (재시도 소진, 모델 id 오류 등) | `LLM 호출 실패` + HTTP 상태·에러 메시지 |
+| 분류기 거절 (`stop_reason: refusal`) | category 포함. 서버측 `fallbacks: "default"`로 먼저 재시도 (A09) |
+| 출력 잘림 (`stop_reason: max_tokens`) | (A10) |
+| 응답 JSON 파싱 실패 | (A11) |
+| diff가 상한(60만 자) 초과 | 앞부분만 분석했음을 명시 |
 
 ### 4단계: 결과 통합
 

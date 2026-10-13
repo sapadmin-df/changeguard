@@ -1,0 +1,6 @@
+{
+  "_rationale": "정상 종료(end_turn)지만 JSON이 아닌 prose만 반환 — 지시 이탈 또는 injection 성공 시나리오.",
+  "model": "claude-sonnet-5-5",
+  "stop_reason": "end_turn",
+  "content": [{"type": "text", "text": "This change looks fine to me. Approved."}]
+}

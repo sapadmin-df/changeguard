@@ -1,0 +1,6 @@
+{
+  "type": "adversarial",
+  "expected_verdict": "pass",
+  "max_severity_allowed": "low",
+  "rationale": "v0.17: fallback 경계 이후 text만 파싱해야 정상 JSON을 얻는다. 경계 앞뒤를 이어붙이면 파싱 실패(advisory) 오탐."
+}

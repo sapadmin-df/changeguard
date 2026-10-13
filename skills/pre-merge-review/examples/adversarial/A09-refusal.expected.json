@@ -1,0 +1,7 @@
+{
+  "type": "adversarial",
+  "min_verdict": "advisory",
+  "max_severity_allowed": "medium",
+  "must_detect": [{"category": "meta", "min_severity": "medium"}],
+  "rationale": "v0.17: LLM 거절은 'LLM 분석 없음'이다. 결정론 finding 0인 코드 diff에서 거절이 조용히 pass로 새면 안 된다 — meta medium으로 advisory."
+}

@@ -25,6 +25,7 @@ ci-caller.py — Actions workflow에서 호출하는 통합 caller (v0.11+)
   POLICY_SHA         - 정책 repo의 commit SHA (deprecation 비교에 사용)
   POLICY_REPO        - 정책 repo의 owner/name (기본 "sapadmin-df/changeguard")
   ANTHROPIC_API_KEY  - LLM 호출용
+  LLM_MODEL          - (v0.17+) 모델 id 또는 'auto'. 비우면 고정 기본값 (model_select.py)
   SLACK_WEBHOOK_URL  - 알림용
   GITHUB_REPOSITORY  - 알림 메시지에 포함
   GITHUB_SHA         - 알림 메시지에 포함 (대상 repo commit SHA)
@@ -290,8 +291,11 @@ def downgrade_sha_only_workflow_findings(diff_content, findings):
     """
     out = []
     for f in findings:
+        # deterministic.sh 원본 출력에는 source 필드가 없다 (source는 llm-adapter가
+        # 통합 시 붙임). v0.17 이전엔 source=='deterministic'만 허용해 강등이 한 번도
+        # 발동하지 않았다 — 소비자 bump PR이 workflow critical로 block됐다.
         is_target = (
-            f.get('source') == 'deterministic'
+            f.get('source', 'deterministic') == 'deterministic'
             and f.get('category') == 'workflow'
             and f.get('severity') in ('critical', 'high', 'medium')
         )
@@ -430,9 +434,26 @@ def build_policy_updated_message(old_sha, new_sha):
 
 # ===== Gating logic (변경 없음) =====
 
+# v0.17: AI 에이전트 지시 파일은 .md여도 에이전트에게 실행 코드 — LLM 검토 대상.
+# 같은 규칙: deterministic.sh AGENT_FILE_RE (fixture M17/B08로 일치 고정).
+AGENT_INSTRUCTION_RE = re.compile(
+    r'(^|/)(claude(\.local)?|agents?|gemini|skill|copilot-instructions)\.md$'
+    r'|\.(instructions|prompt)\.md$'
+    r'|(^|/)\.claude/'
+    # Claude Code 플러그인 배포 레이아웃 — 설치되면 사용자 에이전트의 지시가 된다
+    r'|(^|/)plugins/[^/]+/(commands|agents|skills)/.*\.md$'
+)
+
+
+def is_agent_instruction_file(path):
+    return bool(AGENT_INSTRUCTION_RE.search(path.lower()))
+
+
 def has_code_change(diff_content):
     files = re.findall(r'^diff --git a/\S+ b/(\S+)', diff_content, re.MULTILINE)
     for path in files:
+        if is_agent_instruction_file(path):
+            return True
         if path.endswith(".md") or path.endswith(".markdown"):
             continue
         if any(path.endswith(p) for p in LOCKFILE_PATTERNS):
@@ -448,7 +469,7 @@ def should_call_llm(deterministic_findings, diff_content):
     if severities & {"critical", "high", "medium"}:
         return True, "deterministic findings present"
     if has_code_change(diff_content):
-        return True, "code file change detected"
+        return True, "code or agent-instruction file change detected"
     return False, "markdown/lockfile only, no deterministic findings"
 
 

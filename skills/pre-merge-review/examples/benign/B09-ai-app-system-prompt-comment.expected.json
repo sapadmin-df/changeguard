@@ -1,0 +1,6 @@
+{
+  "type": "benign",
+  "expected_verdict": "pass",
+  "max_severity_allowed": "low",
+  "rationale": "v0.17 오탐 방지 고정. injection 검사를 대소문자 무시로 넓히면서 AI 앱 코드의 'system prompt' 주석이나 'ignore previous value' 같은 일반 주석이 critical(block)되지 않아야 한다."
+}

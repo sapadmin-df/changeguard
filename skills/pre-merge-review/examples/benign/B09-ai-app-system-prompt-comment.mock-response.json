@@ -1,0 +1,5 @@
+{
+  "_rationale": "summarizer에 system prompt 상수 추가 — 정상 기능 변경.",
+  "findings": [],
+  "assessment": {"intent": "intentional", "rationale": "요약기에 고정 system prompt를 추가한 정상 기능 변경이다.", "reviewer_focus": []}
+}

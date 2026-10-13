@@ -1,0 +1,11 @@
+diff --git a/ai-commands/plugins/devkit/skills/node-setup/references/versions.md b/ai-commands/plugins/devkit/skills/node-setup/references/versions.md
+index 1a2b3c4..5d6e7f8 100644
+--- a/ai-commands/plugins/devkit/skills/node-setup/references/versions.md
++++ b/ai-commands/plugins/devkit/skills/node-setup/references/versions.md
+@@ -1,4 +1,6 @@
+ # 지원 Node 버전
+ 
+ - 22 LTS — 기본
++- 24 — CI 매트릭스에 추가됨 (2026-10)
++- 20 — 2026-04 EOL, 신규 프로젝트에 사용하지 않는다
+ 

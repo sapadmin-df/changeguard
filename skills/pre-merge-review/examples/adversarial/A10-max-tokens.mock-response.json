@@ -1,0 +1,6 @@
+{
+  "_rationale": "응답이 max_tokens에서 잘림 (adaptive thinking이 출력 토큰을 함께 소모). 잘린 JSON 앞부분만 존재.",
+  "model": "claude-sonnet-5-5",
+  "stop_reason": "max_tokens",
+  "content": [{"type": "thinking", "thinking": ""}, {"type": "text", "text": "{\"findings\": [{\"severity\": \"crit"}]
+}

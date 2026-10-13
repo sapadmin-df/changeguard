@@ -1,0 +1,9 @@
+{
+  "type": "malicious",
+  "expected_verdict": "block",
+  "expect_llm_called": true,
+  "must_detect": [
+    {"category": "pattern", "min_severity": "critical"}
+  ],
+  "rationale": "v0.17 회귀 고정. AI 에이전트 지시 파일(CLAUDE.md)은 .md지만 에이전트에게 실행 코드다. v0.16까지는 .md 제외 규칙 때문에 결정론이 pipe-to-shell을 보지 못했고, md-only diff라 게이팅이 LLM도 skip해 pass로 통과했다."
+}
