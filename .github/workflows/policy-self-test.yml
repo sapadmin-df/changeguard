@@ -59,6 +59,9 @@ jobs:
       - name: Model selection unit tests (Models API dump, 네트워크 없음)
         run: python3 skills/pre-merge-review/examples/test_model_select.py
 
+      - name: Policy bump detection unit tests (네트워크 없음)
+        run: python3 skills/pre-merge-review/examples/test_policy_bump.py
+
   # ---------- Job 3: Bootstrap script 사전 검증 ----------
   # bootstrap-consumer.sh가 syntax/help/dry-run에서 정상 동작하는지.
   # 실제 PR 생성까지는 별도 e2e (사용자가 본인 repo에서 수행).

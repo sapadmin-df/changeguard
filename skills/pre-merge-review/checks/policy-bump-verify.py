@@ -2,7 +2,8 @@
 """
 policy-bump-verify.py — POLICY_REPO_SHA bump의 자동 검증 (v0.14+)
 
-`POLICY_REPO_SHA: "<sha>"` 변경이 diff에 있으면, public GitHub API로
+정책 SHA 변경(`uses: <policy_repo>/...@<sha>` · `policy_sha: <sha>` · v0.15 이하
+`POLICY_REPO_SHA: "<sha>"`)이 diff에 있으면, public GitHub API로
 *사람이 직접 확인하지 않아도 되는* 사실을 모두 자동 검증한다:
 
   1. exists           — 새 SHA가 실제 policy repo에 존재하는가
@@ -40,12 +41,30 @@ POLICY_REPO_DEFAULT = "sapadmin-df/changeguard"
 HTTP_TIMEOUT_SEC = 10
 
 
-def extract_bump(diff_content):
-    """diff에서 POLICY_REPO_SHA 변경을 추출. (old, new) 또는 None."""
-    m_old = re.search(r'^-\s*POLICY_REPO_SHA:\s*"([a-f0-9]{40})"', diff_content, re.MULTILINE)
-    m_new = re.search(r'^\+\s*POLICY_REPO_SHA:\s*"([a-f0-9]{40})"', diff_content, re.MULTILINE)
-    if m_old and m_new:
-        return m_old.group(1), m_new.group(1)
+def _bump_patterns(policy_repo):
+    """정책 SHA를 담는 줄의 형태들 (우선순위 순). 그룹 1 = SHA."""
+    return [
+        # v0.16+ reusable workflow — uses: <policy_repo>/.github/workflows/x.yml@<sha>
+        r'uses:\s*' + re.escape(policy_repo) + r'/[^@\s]+@([a-f0-9]{40})\b',
+        # v0.16+ reusable workflow 입력 — policy_sha: <sha>
+        r'policy_sha:\s*["\']?([a-f0-9]{40})\b',
+        # v0.15 이하 template — POLICY_REPO_SHA: "<sha>"
+        r'POLICY_REPO_SHA:\s*["\']?([a-f0-9]{40})\b',
+    ]
+
+
+def extract_bump(diff_content, policy_repo=POLICY_REPO_DEFAULT):
+    """diff에서 정책 SHA 변경을 추출. (old, new) 또는 None.
+
+    v0.17.1: v0.16 reusable workflow 형태(uses: ...@SHA, policy_sha:)도 인식한다.
+    이전에는 v0.15 template의 POLICY_REPO_SHA 만 봐서, v0.16 전환 이후 모든 소비자의
+    bump PR에서 자동 검증(이 스크립트)과 POLICY_UPDATED 알림이 동작하지 않았다.
+    """
+    for pat in _bump_patterns(policy_repo):
+        m_old = re.search(r'^-.*?' + pat, diff_content, re.MULTILINE)
+        m_new = re.search(r'^\+.*?' + pat, diff_content, re.MULTILINE)
+        if m_old and m_new and m_old.group(1) != m_new.group(1):
+            return m_old.group(1), m_new.group(1)
     return None
 
 
@@ -146,12 +165,12 @@ def main():
     args = p.parse_args()
 
     try:
-        diff_content = Path(args.diff).read_text()
+        diff_content = Path(args.diff).read_text(encoding="utf-8", errors="replace")
     except OSError as e:
         print(json.dumps({"bump_detected": False, "error": f"diff read: {e}"}))
         sys.exit(0)
 
-    bump = extract_bump(diff_content)
+    bump = extract_bump(diff_content, args.policy_repo)
     if not bump:
         print(json.dumps({"bump_detected": False}))
         sys.exit(0)
