@@ -41,6 +41,7 @@ ci-caller.py — Actions workflow에서 호출하는 통합 caller (v0.11+)
 """
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -388,13 +389,16 @@ def lint_finding_messages(findings):
 
 
 def diff_contains_policy_bump(diff_content):
-    """diff에 POLICY_REPO_SHA 값 변경이 있으면 (old_sha, new_sha) 반환, 아니면 None."""
-    SHA_PAT = r'[a-f0-9]{40}'
-    m_old = re.search(r'^-\s*POLICY_REPO_SHA:\s*"(' + SHA_PAT + r')"', diff_content, re.MULTILINE)
-    m_new = re.search(r'^\+\s*POLICY_REPO_SHA:\s*"(' + SHA_PAT + r')"', diff_content, re.MULTILINE)
-    if m_old and m_new:
-        return m_old.group(1), m_new.group(1)
-    return None
+    """diff에 정책 SHA 변경이 있으면 (old_sha, new_sha) 반환, 아니면 None.
+
+    v0.17.1: 판정은 policy-bump-verify.py extract_bump 하나로 — 이전엔 여기에 v0.15
+    POLICY_REPO_SHA 전용 regex가 따로 있어 v0.16 소비자의 POLICY_UPDATED 알림이 죽었다.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "policy_bump_verify", Path(__file__).resolve().parent / "policy-bump-verify.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.extract_bump(diff_content, _policy_repo())
 
 
 def build_policy_updated_message(old_sha, new_sha):

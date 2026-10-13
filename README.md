@@ -136,6 +136,19 @@ git config commit.gpgsign true
 SSH and GPG keys — Authentication Key와는 별도 항목). GitHub의 SSH 공개키는
 계정당 유일하므로, 여러 계정으로 기여한다면 계정마다 별도의 키가 필요하다.
 
+## v0.17.1 — v0.16 소비자의 bump 자동 검증·POLICY_UPDATED 복구
+
+v0.16 reusable workflow 전환 후 소비자 워크플로우에는 `POLICY_REPO_SHA:` 줄이 없고
+`uses: sapadmin-df/changeguard/...@<SHA>` 와 `policy_sha: <SHA>` 만 있다. 그런데 bump
+감지(`policy-bump-verify.py`, ci-caller의 POLICY_UPDATED)는 v0.15 형태만 인식해서,
+**v0.16 이후 모든 소비자 bump PR에서 자동 검증(존재·서명·main 도달)과 POLICY_UPDATED
+알림이 동작하지 않았다** (실측: oh-my-bas v0.17 bump PR에서 `policy_bump_verification`
+누락, LLM이 "자동 검증 결과 섹션이 없다"고 지적).
+
+- 판정을 `policy-bump-verify.py` `extract_bump` 하나로 통일 — 세 형태 모두 인식,
+  다른 액션의 SHA pin(`actions/checkout@<sha>`)은 제외. ci-caller는 이를 가져다 쓴다.
+- `examples/test_policy_bump.py` 단위 테스트 (CI fixture-tests job).
+
 ## v0.17 — LLM 계층 정비: 모델 정책 + 조용한 통과 차단
 
 AI 계층 점검에서 "LLM 분석이 실제로는 없었는데 pass로 나가는" 경로와, 결정론·LLM을
