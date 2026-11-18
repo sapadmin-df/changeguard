@@ -57,16 +57,51 @@
           },
           "source": {
             "type": "string",
-            "enum": ["deterministic", "llm"],
+            "enum": ["deterministic", "llm", "self-lint"],
             "description": "Which check produced this finding. Deterministic findings cannot be downgraded by LLM."
           },
           "confidence": {
             "type": "string",
             "enum": ["high", "medium", "low"],
             "description": "Required for LLM findings, optional for deterministic"
+          },
+          "rule": {
+            "type": "string",
+            "description": "v0.18+. 안정적인 규칙 ID (det.* / llm.<category> / llm.unavailable.<class> 등). 집계는 description이 아니라 이 값으로 한다. 목록: checks/normalize.py"
+          },
+          "id": {
+            "type": "string",
+            "description": "v0.18+. finding ID = sha1(rule|path|line)[:12]. 피드백(/cg fp <id>)과 run 간 추적의 키"
           }
         }
       }
+    },
+    "signals": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "v0.18+. 사후 분석 신호: verdict_block · verdict_advisory · llm_stricter · det_fp_candidate · llm_failed · llm_refused · llm_truncated · llm_parse_error · llm_no_key · self_lint. telemetry 전송 조건."
+    },
+    "llm_run": {
+      "type": "object",
+      "description": "v0.18+. 구조화된 LLM 실행 상태 (summary 문자열 파싱 불필요).",
+      "properties": {
+        "state": {"type": "string", "enum": ["skipped", "ok", "refused", "truncated", "parse_error", "failed", "no_key", "mock"]},
+        "failure_class": {"type": "string", "enum": ["billing", "quota", "auth", "model_not_found", "transient", "no_key", "other"]},
+        "requested_model": {"type": "string"},
+        "model": {"type": "string"},
+        "model_source": {"type": "string"},
+        "fallback": {"type": "boolean"},
+        "refusal_category": {"type": ["string", "null"]},
+        "stop_reason": {"type": ["string", "null"]},
+        "usage": {"type": "object", "description": "input_tokens · output_tokens · cache_* (API usage 그대로)"},
+        "latency_ms": {"type": "integer"},
+        "diff_truncated": {"type": "boolean"},
+        "error": {"type": "string"}
+      }
+    },
+    "timings": {
+      "type": "object",
+      "description": "v0.18+. ci-caller 단계별 런타임 ms: deprecation_ms · bump_verify_ms · deterministic_ms · adapter_ms · llm_ms · total_ms"
     },
     "summary": {
       "type": "string",

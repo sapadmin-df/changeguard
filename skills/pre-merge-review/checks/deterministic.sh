@@ -49,12 +49,14 @@ awk 'BEGIN { agent_re = ENVIRON["AGENT_FILE_RE"] }
 # 결과 누적 배열 (jq로 조립)
 findings='[]'
 
+# rule: 안정적인 규칙 ID (v0.18) — 사후 분석·피드백 집계의 키. description은 사람용이라
+# 문구가 바뀔 수 있으므로 집계는 반드시 rule로 한다. 규칙 목록은 normalize.py RULES 참조.
 add_finding() {
-  local severity="$1" category="$2" location="$3" description="$4"
+  local severity="$1" category="$2" location="$3" description="$4" rule="$5"
   findings=$(echo "$findings" | jq \
     --arg s "$severity" --arg c "$category" \
-    --arg l "$location" --arg d "$description" \
-    '. += [{severity:$s, category:$c, location:$l, description:$d}]')
+    --arg l "$location" --arg d "$description" --arg r "$rule" \
+    '. += [{severity:$s, category:$c, location:$l, description:$d, rule:$r}]')
 }
 
 # ---------- 1. workflow 파일 변경 ----------
@@ -62,7 +64,7 @@ add_finding() {
 if grep -E '^\+\+\+ b/\.github/workflows/' "$DIFF" >/dev/null 2>&1; then
   while IFS= read -r f; do
     add_finding "critical" "workflow" "$f" \
-      "GitHub Actions workflow 파일 변경 — 스캐너 무력화 가능성 검토 필수"
+      "GitHub Actions workflow 파일 변경 — 스캐너 무력화 가능성 검토 필수" "det.workflow.change"
   done < <(grep -E '^\+\+\+ b/\.github/workflows/' "$DIFF" | sed 's|^+++ b/||')
 fi
 
@@ -79,7 +81,7 @@ if grep -E "^\+\+\+ b/.*($LOCKFILES)$" "$DIFF" >/dev/null 2>&1; then
     sev="medium"
     [[ "$added" -gt 50 ]] && sev="high"
     add_finding "$sev" "dependency" "$f" \
-      "Lockfile 변경 — 신규/업그레이드된 패키지 ${added}줄. 의도한 변경인지 확인 필요."
+      "Lockfile 변경 — 신규/업그레이드된 패키지 ${added}줄. 의도한 변경인지 확인 필요." "det.dependency.lockfile"
   done < <(grep -E "^\+\+\+ b/.*($LOCKFILES)$" "$DIFF" | sed 's|^+++ b/||')
 fi
 
@@ -88,7 +90,7 @@ fi
 if grep -E '^\+\s*"(postinstall|preinstall|prepare|postuninstall|preuninstall)"\s*:' "$DIFF" >/dev/null 2>&1; then
   while IFS= read -r line; do
     add_finding "high" "dependency" "package.json" \
-      "신규 npm lifecycle script 추가 감지: $(echo "$line" | sed 's/^+//' | tr -s ' ')"
+      "신규 npm lifecycle script 추가 감지: $(echo "$line" | sed 's/^+//' | tr -s ' ')" "det.dependency.lifecycle_script"
   done < <(grep -E '^\+\s*"(postinstall|preinstall|prepare|postuninstall|preuninstall)"\s*:' "$DIFF")
 fi
 
@@ -127,12 +129,17 @@ scan_added_lines() {
   ' "$1"
 }
 
+# pipe-to-shell: v0.18에서 `| VAR=값 sh -`, `| sudo [-E] bash`, `| env X=1 sh` 형태 포함.
+# 실측: oh-my-bas k3s 설치(`curl … | INSTALL_K3S_CHANNEL=stable … sh -`)를 v0.17 패턴이 놓쳐
+# LLM만 medium으로 보고 — 같은 위협이 code-server(`| sh`)는 정적 critical로 차단되는 불일치 (M20).
+PIPE_TO_SHELL='(curl|wget)[^|]*\|\s*((sudo(\s+-[A-Za-z]+)*|env)\s+)?([A-Za-z_][A-Za-z0-9_]*=("[^"]*"|[^ "]*)\s+)*(sh|bash|zsh|dash)\b'
+
+# spec 형식: "severity|rule_id|description"
 declare -A patterns=(
-  ["curl[^|]*\|\s*(sh|bash)"]="critical:Pipe-to-shell 실행 패턴 (curl|sh)"
-  ["wget[^|]*\|\s*(sh|bash)"]="critical:Pipe-to-shell 실행 패턴 (wget|bash)"
-  ["eval\s*\(\s*atob\s*\("]="critical:base64 디코드 후 eval — 난독화 의심"
-  ["eval\s*\(\s*Buffer\.from\s*\("]="critical:Buffer.from 디코드 후 eval — 난독화 의심"
-  ["child_process.*exec.*\\\$\{"]="high:동적 셸 명령 조립"
+  ["$PIPE_TO_SHELL"]="critical|det.pattern.pipe_to_shell|Pipe-to-shell 실행 패턴 (원격 스크립트를 셸로 바로 실행, curl|sh)"
+  ["eval\s*\(\s*atob\s*\("]="critical|det.pattern.eval_decode|base64 디코드 후 eval — 난독화 의심"
+  ["eval\s*\(\s*Buffer\.from\s*\("]="critical|det.pattern.eval_decode|Buffer.from 디코드 후 eval — 난독화 의심"
+  ["child_process.*exec.*\\\$\{"]="high|det.pattern.dynamic_shell|동적 셸 명령 조립"
 )
 
 # scan 결과를 한 번만 만들어 재사용 (퍼포먼스 + 단일 source of truth)
@@ -141,13 +148,15 @@ scan_added_lines "$DIFF" > "$ADDED_LINES"
 
 for pattern in "${!patterns[@]}"; do
   spec="${patterns[$pattern]}"
-  severity="${spec%%:*}"
-  description="${spec#*:}"
+  severity="${spec%%|*}"
+  rest="${spec#*|}"
+  rule="${rest%%|*}"
+  description="${rest#*|}"
   # 매치되는 라인만 head로 제한 (반복 finding 방지)
   while IFS=$'\t' read -r file lineno _content; do
     [[ -z "$file" ]] && continue
-    add_finding "$severity" "pattern" "${file}:${lineno}" "$description"
-  done < <(grep -E "$pattern" "$ADDED_LINES" | head -10)
+    add_finding "$severity" "pattern" "${file}:${lineno}" "$description" "$rule"
+  done < <(grep -E "$pattern" "$ADDED_LINES" | head -10 || true)
 done
 
 # ---------- 5. 긴 base64 문자열 ----------
@@ -155,14 +164,14 @@ done
 if grep -nE '^\+[^+].*[A-Za-z0-9+/]{100,}={0,2}' "$DIFF_NO_MD" >/dev/null 2>&1; then
   count=$(grep -cE '^\+[^+].*[A-Za-z0-9+/]{100,}={0,2}' "$DIFF_NO_MD" || true)
   add_finding "medium" "pattern" "diff" \
-    "긴 base64 문자열 추가 감지 (${count}건) — 난독화된 페이로드 가능성 검토"
+    "긴 base64 문자열 추가 감지 (${count}건) — 난독화된 페이로드 가능성 검토" "det.pattern.long_base64"
 fi
 
 # ---------- 6. 신규 binary 파일 ----------
 if grep -E '^Binary files /dev/null and b/' "$DIFF" >/dev/null 2>&1; then
   while IFS= read -r f; do
     add_finding "high" "binary" "$f" \
-      "신규 binary 파일 추가 — 코드 리뷰 불가, 도입 사유 확인 필요"
+      "신규 binary 파일 추가 — 코드 리뷰 불가, 도입 사유 확인 필요" "det.binary.new"
   done < <(grep -E '^Binary files /dev/null and b/' "$DIFF" | sed 's|^Binary files /dev/null and b/||; s| differ$||')
 fi
 
@@ -191,7 +200,7 @@ while IFS=$'\t' read -r file lineno content; do
   matched_kw=$( { echo "$content" | grep -oE "$INJECTION_PATTERNS" || echo "$content" | grep -oiE "$INJECTION_PATTERNS_CI"; } \
     | head -1 | tr '[:lower:]' '[:upper:]' | tr -s ' ')
   add_finding "critical" "injection" "${file}:${lineno}" \
-    "Prompt injection 메타 키워드 '${matched_kw}' 감지 — 해당 위치 클릭 시 GitHub에서 원문 확인 가능."
+    "Prompt injection 메타 키워드 '${matched_kw}' 감지 — 해당 위치 클릭 시 GitHub에서 원문 확인 가능." "det.injection.keyword"
   INJ_COUNT=$((INJ_COUNT + 1))
 # (|| true: set -e가 process substitution 안에도 적용돼 첫 grep 무매치 시 두 번째가 실행되지 않음)
 done < <( { grep -E "$INJECTION_PATTERNS" "$ADDED_LINES" || true; grep -iE "$INJECTION_PATTERNS_CI" "$ADDED_LINES" || true; } \

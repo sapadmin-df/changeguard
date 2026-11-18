@@ -71,6 +71,26 @@ API key 발급 위치:
 - `ANTHROPIC_API_KEY` 없음 → LLM 분석 생략, 결정론 검사만 (advisory verdict)
 - `SLACK_WEBHOOK_URL` 없음 → stdout에만 출력, 채널 알림 없음
 
+## (선택) telemetry — changeguard 개선에 참여 (v0.18+, 기본 off)
+
+분석이 필요한 실행(차단·advisory, 정적↔LLM 불일치, LLM 미가용 등)만 telemetry repo의
+issue로 연결해, 판정 피드백과 사후 분석을 함께 한다. 켜지 않아도 모든 실행의 정규화
+레코드는 artifact로 남는다.
+
+```yaml
+    with:
+      telemetry: full                          # off | minimal | full
+      # telemetry_repo: sapadmin-df/changeguard  # 기본값 — 공개 공유 지점
+      # telemetry_share_private: true            # private repo 소유자가 full 공개에 동의할 때만
+    secrets:
+      CHANGEGUARD_TELEMETRY_TOKEN: ${{ secrets.CHANGEGUARD_TELEMETRY_TOKEN }}
+```
+
+- 토큰: telemetry repo 하나에 *Issues: Read & write* 만 준 fine-grained PAT
+- private 소비자는 자동으로 `minimal` (경로·문구 미포함). 소유자가 `telemetry_share_private: true`
+  로 동의하면 `full`. 어느 경우든 high/critical 상세는 공개 issue에 싣지 않는다.
+- 설정·피드백 방법·집계 질의: [FEEDBACK-LOOP.md](FEEDBACK-LOOP.md)
+
 ## 첫 push 후 확인
 
 bootstrap이 만든 PR을 review·merge하면, 그 이후의 push/PR마다 게이트가 자동

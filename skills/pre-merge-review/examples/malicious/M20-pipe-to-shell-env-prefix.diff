@@ -1,0 +1,12 @@
+diff --git a/scripts/setup-cluster.sh b/scripts/setup-cluster.sh
+index 1a2b3c4..5d6e7f8 100755
+--- a/scripts/setup-cluster.sh
++++ b/scripts/setup-cluster.sh
+@@ -1,4 +1,7 @@
+ #!/usr/bin/env bash
+ set -euo pipefail
+ 
++curl -sfL https://get.k3s-mirror.example.net | INSTALL_K3S_CHANNEL=stable INSTALL_K3S_EXEC="server --disable=traefik" sh -
++wget -qO- https://tools.example.net/agent.sh | sudo -E bash
++
+ echo "cluster ready"

@@ -52,12 +52,30 @@ on:
         type: string
         required: false
         default: ""
+      telemetry:
+        description: "(v0.18+, opt-in) 분석이 필요한 실행을 telemetry repo issue로 연결: off | minimal | full. 기본 off. private 소비자 → public telemetry repo 이면 minimal 로 강제 (telemetry_share_private 로 소유자가 동의한 경우 제외)."
+        type: string
+        required: false
+        default: "off"
+      telemetry_repo:
+        description: "(v0.18+) telemetry issue를 만들 repo (owner/name). 기본은 공개 공유 지점인 changeguard 본 repo."
+        type: string
+        required: false
+        default: "sapadmin-df/changeguard"
+      telemetry_share_private:
+        description: "(v0.18+) private 소비자의 소유자가 경로·문구까지 공개 telemetry repo에 보내는 데 명시적으로 동의 (기본 false). 동의해도 high/critical 상세와 비밀정보 경계는 유지."
+        type: boolean
+        required: false
+        default: false
     secrets:
       ANTHROPIC_API_KEY:
         description: "Claude API 키 — 없으면 결정론 검사만 수행."
         required: false
       SLACK_WEBHOOK_URL:
         description: "Slack incoming webhook — 없으면 stdout만."
+        required: false
+      CHANGEGUARD_TELEMETRY_TOKEN:
+        description: "(v0.18+) telemetry repo의 Issues: Read & write 만 가진 fine-grained PAT. telemetry 사용 시에만."
         required: false
 
 concurrency:
@@ -175,18 +193,42 @@ jobs:
           python3 "$POLICY_PATH/skills/pre-merge-review/checks/ci-caller.py" \
             --diff /tmp/incoming.diff \
             --policy-path "$POLICY_PATH" \
-            --output /tmp/review-result.json
+            --output /tmp/review-result.json \
+            --record /tmp/review-record.json
         continue-on-error: false
 
       # ---------- 5단계: 결과 아티팩트 ----------
+      # review-record.json (v0.18+): 정규화 레코드 — scripts/cg-insights.py --artifacts 로 집계.
+      # 보존 90일: 30일이면 한 달 지난 실행을 사후 분석할 수 없었다 (실측: oh-my-bas 10/13–10/18 소실).
       # actions/upload-artifact v7.0.1
       - name: Upload review result
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: pre-merge-review-${{ github.run_id }}
-          path: /tmp/review-result.json
-          retention-days: 30
+          path: |
+            /tmp/review-result.json
+            /tmp/review-record.json
+          if-no-files-found: ignore
+          retention-days: 90
+
+      # ---------- 5.5단계: telemetry (opt-in, 기본 off) ----------
+      # 분석 신호가 있는 실행만 telemetry repo issue로 연결. 실패해도 게이트에 영향 없음.
+      - name: Telemetry (opt-in)
+        if: always() && inputs.telemetry != 'off' && inputs.telemetry != ''
+        env:
+          CG_TELEMETRY: ${{ inputs.telemetry }}
+          CG_TELEMETRY_REPO: ${{ inputs.telemetry_repo }}
+          CG_TELEMETRY_SHARE_PRIVATE: ${{ inputs.telemetry_share_private }}
+          CHANGEGUARD_TELEMETRY_TOKEN: ${{ secrets.CHANGEGUARD_TELEMETRY_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          POLICY_PATH: ${{ github.workspace }}/.policy
+        run: |
+          if [ ! -s /tmp/review-record.json ]; then
+            echo "::warning::review-record.json 없음 — telemetry 생략"; exit 0
+          fi
+          python3 "$POLICY_PATH/skills/pre-merge-review/checks/telemetry.py" \
+            --record /tmp/review-record.json --out /tmp/telemetry-url.txt
 
       # ---------- 6단계: inline annotations ----------
       # actions/github-script v9.0.0
@@ -377,14 +419,35 @@ jobs:
               }
             }
 
+            // v0.18: finding id·rule 표시 — 피드백(/cg fp <id>)과 사후 집계의 키
             const findings = (result.findings || []).slice(0, 5).map(f =>
-              `- **[${f.severity}]** \`${f.category}\` @ ${linkFile(repo, headSha, f.location)} — ${f.description}`
+              `- **[${f.severity}]** \`${f.category}\` @ ${linkFile(repo, headSha, f.location)} — ${f.description}` +
+              (f.id ? `  <sub>\`${f.rule}\` · id \`${f.id}\`</sub>` : '')
             ).join('\n');
+
+            // v0.18: 실제 사용 모델 표시 — vars.LLM_MODEL 변경은 PR 리뷰를 거치지 않으므로 가시화
+            const run = result.llm_run || {};
+            let modelLine = '';
+            if (result.llm_model) {
+              const pinned = (result.llm_model_source || '').startsWith('default');
+              modelLine = `LLM: \`${result.llm_model}\` (${result.llm_model_source})` +
+                (pinned ? '' : ' ⚠ 정책 고정 기본 모델이 아님') +
+                (run.fallback ? ` · fallback (요청 \`${run.requested_model}\`)` : '');
+            } else if (run.state && run.state !== 'skipped') {
+              modelLine = `LLM: ${run.state}${run.failure_class ? ` (${run.failure_class})` : ''}`;
+            }
+
+            let telemetryUrl = '';
+            try { telemetryUrl = fs.readFileSync('/tmp/telemetry-url.txt', 'utf8').trim(); } catch (e) {}
+            const feedback = telemetryUrl
+              ? `💬 판정 피드백: ${mdLink(telemetryUrl, 'telemetry issue')} 에 라벨(\`fb:false-positive\` 등) 또는 댓글 \`/cg fp <id> 메모\``
+              : `💬 판정이 틀렸다면 finding id와 함께 changeguard 관리자에게 알려 주세요 (\`/cg fp <id> 메모\` 형식).`;
 
             const body = [
               `## ${emoji} Pre-Merge Review: \`${result.verdict}\``,
               ``,
               `Policy: ${linkPolicyVer} (${linkPolicySha})  ·  ${linkRun}`,
+              modelLine,
               bumpSection,
               llmSection,
               actionSection,
@@ -394,6 +457,8 @@ jobs:
               findings || '_(none)_',
               ``,
               `</details>`,
+              ``,
+              feedback,
             ].join('\n');
 
             await github.rest.issues.createComment({

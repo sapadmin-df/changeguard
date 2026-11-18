@@ -62,6 +62,49 @@ jobs:
       - name: Policy bump detection unit tests (네트워크 없음)
         run: python3 skills/pre-merge-review/examples/test_policy_bump.py
 
+      - name: Normalize / telemetry unit tests (네트워크 없음)
+        run: python3 skills/pre-merge-review/examples/test_normalize_telemetry.py
+
+      - name: ci-caller end-to-end (비 UTF-8 diff · 정규화 레코드 · 런타임)
+        env:
+          POLICY_PATH: ${{ github.workspace }}
+          GITHUB_EVENT_NAME: pull_request
+        run: |
+          set -e
+          d=$(mktemp -d)
+          # 회귀 고정: CP949 바이트(0xa1, 0xeb)가 섞인 diff에서 ci-caller가 죽지 않아야 한다 (v0.18)
+          { cat skills/pre-merge-review/examples/malicious/M20-pipe-to-shell-env-prefix.diff
+            printf '+# \xa1\xeb cp949 bytes\n'; } > "$d/in.diff"
+          rc=0
+          python3 skills/pre-merge-review/checks/ci-caller.py --diff "$d/in.diff" --policy-path "$POLICY_PATH" \
+            --output "$d/result.json" --record "$d/record.json" > /dev/null || rc=$?
+          echo "ci-caller exit=$rc (1 = block 기대)"
+          test "$rc" = 1
+          python3 - "$d/record.json" <<'EOF'
+          import json, sys
+          r = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert r["schema"] == "changeguard.review/v1", r["schema"]
+          assert r["verdict"] == "block" and r["verdict_driver"] == "deterministic"
+          assert "det.pattern.pipe_to_shell" in r["rule_counts"], r["rule_counts"]
+          assert {"deterministic_ms", "adapter_ms", "total_ms"} <= set(r["timings"]), r["timings"]
+          assert all(f.get("id") and f.get("rule") for f in r["findings"])
+          print("record ok:", r["signals"], r["timings"])
+          EOF
+
+      - name: Insights collector smoke test (fixture 결과 → 원장)
+        run: |
+          set -e
+          d=$(mktemp -d)
+          for f in skills/pre-merge-review/examples/malicious/M01-*.diff skills/pre-merge-review/examples/llm-only/M06-*.diff; do
+            n=$(basename "$f" .diff)
+            bash skills/pre-merge-review/checks/deterministic.sh "$f" > "$d/det.json"
+            python3 skills/pre-merge-review/checks/llm-adapter.py --diff "$f" --findings "$d/det.json" \
+              --mock "${f%.diff}.mock-response.json" > "$d/$n.json" || true
+          done
+          rm -f "$d/det.json"
+          python3 scripts/cg-insights.py --dir "$d" --ledger "$d/ledger" \
+            --sql "select verdict, verdict_driver, signals from runs"
+
   # ---------- Job 3: Bootstrap script 사전 검증 ----------
   # bootstrap-consumer.sh가 syntax/help/dry-run에서 정상 동작하는지.
   # 실제 PR 생성까지는 별도 e2e (사용자가 본인 repo에서 수행).

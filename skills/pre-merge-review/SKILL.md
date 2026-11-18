@@ -135,6 +135,18 @@ LLM은 다음을 평가한다:
 | 응답 JSON 파싱 실패 | (A11) |
 | diff가 상한(60만 자) 초과 | 앞부분만 분석했음을 명시 |
 
+### 3.5단계: 기록과 피드백 루프 (v0.18+)
+
+모든 finding은 안정적 규칙 ID(`rule`)와 `id`를 가진다. 정적 규칙 ID는
+`deterministic.sh` `add_finding`의 5번째 인자이며 목록은 `checks/normalize.py` `DET_RULES`.
+LLM finding의 rule은 코드가 category로 붙인다 (`llm.<category>`, 메모는 `llm.note`,
+미가용은 `llm.unavailable.<class>`) — LLM 출력으로 rule이 정해지지 않는다.
+
+caller는 결과와 함께 정규화 레코드(`changeguard.review/v1`)를 남기고, 소비자가 opt-in 하면
+분석 신호가 있는 실행만 telemetry issue로 연결한다 (기본 off). 루프의 기록 형식·집계·반영
+절차는 `docs/FEEDBACK-LOOP.md`가 SSOT다. 루프가 바꾸는 것은 정적 규칙의 문맥 인식과
+프롬프트 기준이며, 정적 결과를 LLM 판단으로 낮추는 규칙은 만들지 않는다.
+
 ### 4단계: 결과 통합
 
 1·3단계의 findings을 합치고 `output-schema.json`에 맞춰 출력한다.

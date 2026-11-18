@@ -47,6 +47,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import urllib.request
 import urllib.error
 from pathlib import Path
@@ -636,6 +637,8 @@ def main():
     p.add_argument("--diff", required=True)
     p.add_argument("--policy-path", default=os.environ.get("POLICY_PATH", ".policy"))
     p.add_argument("--output", help="결과 JSON 저장 경로 (기본 stdout)")
+    p.add_argument("--record", help="(v0.18+) 정규화 레코드(changeguard.review/v1) 저장 경로 — "
+                                    "사후 분석·telemetry 입력")
     args = p.parse_args()
 
     policy_path = Path(args.policy_path)
@@ -649,7 +652,15 @@ def main():
             print(f"missing policy file: {f}", file=sys.stderr)
             sys.exit(2)
 
+    # v0.18: 단계별 런타임 (ms) — 정규화 레코드 timings 로 남겨 CI 성능을 성격별로 집계
+    t0 = time.monotonic()
+    timings = {}
+
+    def lap(name, since):
+        timings[name] = int((time.monotonic() - since) * 1000)
+
     # 0. Deprecation 체크 (fail-open)
+    t = time.monotonic()
     current_policy_sha = os.environ.get("POLICY_SHA", "")
     if current_policy_sha and current_policy_sha != "unknown":
         deprecated, floor = check_deprecation(_policy_repo(), current_policy_sha)
@@ -663,9 +674,13 @@ def main():
                   file=sys.stderr)
             sys.exit(1)
 
+    lap("deprecation_ms", t)
+
     # diff 로드
     try:
-        diff_content = Path(args.diff).read_text()
+        # v0.18: CP949 등 비 UTF-8 바이트가 섞인 diff에서 UnicodeDecodeError로 죽어
+        # 검사 없이 실패(빨간 X)로 끝났다 (실측: oh-my-bas 5건, 10/19–10/21) — 대체 문자로 읽는다
+        diff_content = Path(args.diff).read_text(encoding="utf-8", errors="replace")
     except OSError as e:
         print(f"diff read error: {e}", file=sys.stderr)
         sys.exit(2)
@@ -673,6 +688,7 @@ def main():
     # 0.5. v0.14+: POLICY_REPO_SHA bump 자동 검증
     # public repo + GITHUB_TOKEN으로 사람이 직접 확인할 사실(exists/signed/ancestor/author)을
     # 코드가 미리 검증. LLM은 "확인하라"가 아니라 "확인됨/안 됨"으로 narrative 작성.
+    t = time.monotonic()
     bump_verification = None
     verifier = policy_path / "skills" / "pre-merge-review" / "checks" / "policy-bump-verify.py"
     if verifier.exists():
@@ -694,7 +710,10 @@ def main():
         except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError) as e:
             print(f"[bump-verify] error: {e}", file=sys.stderr)
 
+    lap("bump_verify_ms", t)
+
     # 1. 결정론 검사
+    t = time.monotonic()
     det_proc = subprocess.run(
         ["bash", str(checker), args.diff],
         capture_output=True, text=True,
@@ -703,6 +722,7 @@ def main():
         print(f"deterministic check failed: {det_proc.stderr}", file=sys.stderr)
         sys.exit(2)
 
+    lap("deterministic_ms", t)
     try:
         det_findings = json.loads(det_proc.stdout or "[]")
     except json.JSONDecodeError:
@@ -744,7 +764,9 @@ def main():
         bump_verify_path.write_text(json.dumps(bump_verification, ensure_ascii=False))
         adapter_cmd.extend(["--bump-verification", str(bump_verify_path)])
 
+    t = time.monotonic()
     adapter_proc = subprocess.run(adapter_cmd, capture_output=True, text=True)
+    lap("adapter_ms", t)
     if adapter_proc.stderr:
         print(adapter_proc.stderr, file=sys.stderr)
     if adapter_proc.returncode not in (0, 1):
@@ -759,6 +781,10 @@ def main():
         sys.exit(2)
 
     result["_gating"] = {"call_llm": call_llm, "reason": gating_reason}
+    timings["llm_ms"] = (result.get("llm_run") or {}).get("latency_ms")
+    timings["total_ms"] = int((time.monotonic() - t0) * 1000)
+    result["timings"] = timings
+    result["diff_stats"]["bytes"] = len(diff_content.encode("utf-8", errors="replace"))
 
     # v0.14+: auto-verification 결과를 result에 첨부 (Slack/PR comment가 형식화)
     if bump_verification:
@@ -770,10 +796,21 @@ def main():
         result["findings"].append(lint_finding)
         print(f"[finding-lint] {lint_finding['description'][:200]}", file=sys.stderr)
 
+    # 3.5 v0.18+: 정규화 레코드 — finding마다 rule·id를 결과에도 붙여 PR comment에서
+    #     피드백 대상으로 지목할 수 있게 한다 (/cg fp <id>)
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import normalize
+    record = normalize.normalize(result, normalize.run_context(), "full")
+    for f, nf in zip(result["findings"], record["findings"]):
+        f["rule"], f["id"] = nf["rule"], nf["id"]
+    result["signals"] = record["signals"]
+    if args.record:
+        Path(args.record).write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+
     # 4. 결과 출력
     output_text = json.dumps(result, ensure_ascii=False, indent=2)
     if args.output:
-        Path(args.output).write_text(output_text)
+        Path(args.output).write_text(output_text, encoding="utf-8")
     print(output_text)
 
     # 5. Slack 알림 디스패치 (v0.14.1+: PR 이벤트는 PR comment/Checks ❌가 담당,

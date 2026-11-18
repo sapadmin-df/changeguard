@@ -1,0 +1,8 @@
+{
+  "_rationale": "원격 설치 스크립트를 검증 없이 root 셸로 실행.",
+  "findings": [
+    {"severity": "high", "category": "network", "location": "scripts/setup-cluster.sh:4",
+     "description": "비공식 미러 도메인에서 받은 설치 스크립트를 버전·체크섬 고정 없이 실행한다.", "confidence": "high"}
+  ],
+  "assessment": {"intent": "suspicious", "rationale": "공식 도메인이 아닌 미러에서 설치 스크립트를 받아 바로 셸로 실행한다.", "reviewer_focus": ["get.k3s-mirror.example.net 이 조직이 관리하는 미러인지"]}
+}
