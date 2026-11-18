@@ -53,15 +53,20 @@ on:
         required: false
         default: ""
       telemetry:
-        description: "(v0.18+, opt-in) 분석이 필요한 실행을 telemetry repo issue로 연결: off | minimal | full. 기본 off. private 소비자 → public telemetry repo 이면 minimal 로 강제."
+        description: "(v0.18+, opt-in) 분석이 필요한 실행을 telemetry repo issue로 연결: off | minimal | full. 기본 off. private 소비자 → public telemetry repo 이면 minimal 로 강제 (telemetry_share_private 로 소유자가 동의한 경우 제외)."
         type: string
         required: false
         default: "off"
       telemetry_repo:
-        description: "(v0.18+) telemetry issue를 만들 repo (owner/name). telemetry가 off가 아니면 필수. private repo 권장."
+        description: "(v0.18+) telemetry issue를 만들 repo (owner/name). 기본은 공개 공유 지점인 changeguard 본 repo."
         type: string
         required: false
-        default: ""
+        default: "sapadmin-df/changeguard"
+      telemetry_share_private:
+        description: "(v0.18+) private 소비자의 소유자가 경로·문구까지 공개 telemetry repo에 보내는 데 명시적으로 동의 (기본 false). 동의해도 high/critical 상세와 비밀정보 경계는 유지."
+        type: boolean
+        required: false
+        default: false
     secrets:
       ANTHROPIC_API_KEY:
         description: "Claude API 키 — 없으면 결정론 검사만 수행."
@@ -214,6 +219,7 @@ jobs:
         env:
           CG_TELEMETRY: ${{ inputs.telemetry }}
           CG_TELEMETRY_REPO: ${{ inputs.telemetry_repo }}
+          CG_TELEMETRY_SHARE_PRIVATE: ${{ inputs.telemetry_share_private }}
           CHANGEGUARD_TELEMETRY_TOKEN: ${{ secrets.CHANGEGUARD_TELEMETRY_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           POLICY_PATH: ${{ github.workspace }}/.policy

@@ -4,9 +4,16 @@ telemetry.py — 분석이 필요한 실행을 telemetry repo의 issue로 연결
 
 기본값은 꺼짐. 소비자가 reusable workflow 입력으로 명시적으로 켤 때만 동작한다:
   telemetry: off | minimal | full   (기본 off)
-  telemetry_repo: owner/name         (필수 — 기본값 없음)
+  telemetry_repo: owner/name         (기본 sapadmin-df/changeguard — 공개 공유 지점)
+  telemetry_share_private: bool      (기본 false — private 소비자 소유자의 명시적 동의)
   secret CHANGEGUARD_TELEMETRY_TOKEN  (telemetry repo의 Issues: Read & write 만 가진
                                        fine-grained PAT 권장)
+
+공개·비밀 경계는 docs/REQUIREMENTS.md REQ-C.3이 SSOT다. 이 파일의 prepare()가 그 구현:
+  C.3-2  private 소스 → 공개 대상: minimal 강제. 소유자 동의(share_private) 시에만 full.
+  C.3-3  공개 대상이면 high/critical finding의 경로·라인·문구와 LLM 서술을 빼고 규칙만 남김
+         (아직 고치지 않은 취약점 상세를 공개 지점에 모으지 않음). 원본은 소비자 artifact에 있음.
+  C.3-4  diff 유래 문구는 길이 제한, 표에서는 code span 안에만, 레코드는 깨지지 않는 fence 안에.
 
 보내는 것: normalize.py 정규화 레코드 (signals 가 있는 실행만 — 판정 차단·advisory,
 LLM이 정적보다 엄격, 정적 오탐 후보, LLM 미가용·거절·잘림·파싱 실패, self-lint).
@@ -14,9 +21,7 @@ LLM이 정적보다 엄격, 정적 오탐 후보, LLM 미가용·거절·잘림�
 이슈 단위: PR 실행은 PR마다 한 이슈, push 실행은 커밋마다 한 이슈. 같은 키의 다음
 실행은 같은 이슈에 댓글로 레코드를 덧붙인다 (재실행·후속 커밋 추적).
 
-공개 범위 보호: 소비자 repo가 private 이고 telemetry repo가 public 이면 level을
-minimal로 강제한다 (파일 경로·finding 문구·LLM 서술이 공개 저장소로 나가지 않게).
-minimal 에도 repo 이름과 run 링크는 들어간다 — 그것도 싫으면 private telemetry repo를 쓴다.
+minimal 에도 repo 이름과 run 링크는 들어간다.
 
 실패해도 게이트에 영향 없음 (항상 exit 0, 경고만).
 """
@@ -24,12 +29,17 @@ minimal 에도 repo 이름과 run 링크는 들어간다 — 그것도 싫으면
 import argparse
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
 
 API = "https://api.github.com"
+DEFAULT_REPO = "sapadmin-df/changeguard"
+CELL_MAX = 120          # 표 칸 문구 상한
+TEXT_MAX = 300          # 레코드 안 diff 유래 문구(description 등) 상한
+HIGH_PLUS = {"high", "critical"}
 LABEL_COLORS = {"cg-telemetry": "1e7eb6", "verdict:": "cc0000", "signal:": "daa520",
                 "fb:": "36a64f", "repo:": "5319e7"}
 FEEDBACK_HELP = (
@@ -103,13 +113,30 @@ def summary_md(record):
         "|---|---|---|---|---|",
     ]
     for f in record.get("findings", [])[:30]:
-        loc = f"{f.get('path')}:{f.get('line') or ''}".rstrip(":") if f.get("path") else "-"
+        if f.get("redacted"):
+            loc = "(비공개: high+)"
+        elif f.get("path"):
+            loc = code_span(f"{f.get('path')}:{f.get('line') or ''}".rstrip(":"))
+        else:
+            loc = "-"
         lines.append(f"| `{f['id']}` | `{f['rule']}` | {f['severity']} | {f['path_class']} | {loc} |")
     return "\n".join(lines)
 
 
+def code_span(text, limit=CELL_MAX):
+    """diff 유래 문구를 표 칸에 안전하게: 백틱·파이프·개행 제거, 길이 제한, code span 안에만
+    (@멘션·링크·HTML이 렌더링되지 않게)."""
+    t = str(text).replace("`", "'").replace("|", "/").replace("\r", " ").replace("\n", " ")
+    if len(t) > limit:
+        t = t[:limit - 1] + "…"
+    return f"`{t}`"
+
+
 def record_block(record):
-    return "```json changeguard-record\n" + json.dumps(record, ensure_ascii=False, indent=1) + "\n```"
+    body = json.dumps(record, ensure_ascii=False, indent=1)
+    longest = max((len(m) for m in re.findall(r"`+", body)), default=0)
+    fence = "`" * max(3, longest + 1)          # 내용 속 백틱이 fence를 닫지 못하게
+    return f"{fence}json changeguard-record\n{body}\n{fence}"
 
 
 def find_issue(repo, token, key):
@@ -121,15 +148,50 @@ def find_issue(repo, token, key):
         return None
 
 
-def post(record, repo, token, level_requested, source_visibility):
-    target_visibility = visibility(repo, token)
+def prepare(record, level_requested, source_visibility, target_visibility, share_private=False):
+    """REQ-C.3 경계를 적용한 (record, level, notes). 네트워크 없음 — 단위 테스트 대상."""
     level = level_requested
-    note = ""
-    if level == "full" and source_visibility != "public" and target_visibility != "private":
-        level, note = "minimal", (f"> level=full 요청이었으나 소비자 repo({source_visibility})보다 "
-                                  f"telemetry repo({target_visibility})가 넓게 공개되어 minimal로 낮춤.\n\n")
-    if level == "minimal" and record.get("level") != "minimal":
-        record = minimal(record)
+    notes = []
+    target_public = target_visibility != "private"     # unknown 은 공개로 간주 (보수적)
+    if level == "full" and source_visibility != "public" and target_public:
+        if share_private:
+            notes.append(f"소비자 repo({source_visibility})의 소유자가 공개 공유에 동의함 "
+                         f"(telemetry_share_private) — full 전송.")
+        else:
+            level = "minimal"
+            notes.append(f"level=full 요청이었으나 소비자 repo({source_visibility})보다 telemetry "
+                         f"repo({target_visibility})가 넓게 공개되어 minimal로 낮춤.")
+    r = minimal(record) if level == "minimal" else json.loads(json.dumps(record))
+    if level == "full":
+        for f in r.get("findings", []):
+            if isinstance(f.get("description"), str) and len(f["description"]) > TEXT_MAX:
+                f["description"] = f["description"][:TEXT_MAX - 1] + "…"
+    if target_public:
+        hidden = 0
+        for f in r.get("findings", []):
+            if f.get("severity") in HIGH_PLUS and any(k in f for k in ("path", "line", "description")):
+                for k in ("path", "line", "description"):
+                    f.pop(k, None)
+                f["redacted"] = "high+"
+                hidden += 1
+        llm = r.get("llm") or {}
+        if any(f.get("severity") in HIGH_PLUS for f in r.get("findings", [])) and \
+                any(k in llm for k in ("rationale", "reviewer_focus")):
+            llm.pop("rationale", None)
+            llm.pop("reviewer_focus", None)
+            hidden += 1
+        if hidden:
+            notes.append("공개 telemetry repo이므로 high/critical 상세(경로·라인·문구·LLM 서술)는 "
+                         "싣지 않음 — 원본은 소비자 run의 artifact `review-record.json`.")
+    r["level"] = level
+    return r, level, notes
+
+
+def post(record, repo, token, level_requested, source_visibility, share_private=False):
+    target_visibility = visibility(repo, token)
+    record, level, notes = prepare(record, level_requested, source_visibility,
+                                   target_visibility, share_private)
+    note = "".join(f"> {n}\n" for n in notes) + ("\n" if notes else "")
     key = issue_key(record)
     labels = labels_for(record)
     ensure_labels(repo, token, labels)
@@ -166,7 +228,10 @@ def main():
     p.add_argument("--record", required=True, help="normalize.py 레코드 (full)")
     p.add_argument("--level", default=os.environ.get("CG_TELEMETRY", "off"),
                    choices=["off", "minimal", "full"])
-    p.add_argument("--repo", default=os.environ.get("CG_TELEMETRY_REPO", ""))
+    p.add_argument("--repo", default=os.environ.get("CG_TELEMETRY_REPO") or DEFAULT_REPO)
+    p.add_argument("--share-private", action="store_true",
+                   default=os.environ.get("CG_TELEMETRY_SHARE_PRIVATE", "").lower() == "true",
+                   help="private 소비자 소유자가 공개 telemetry repo로의 full 전송에 동의")
     p.add_argument("--out", help="생성·갱신한 issue URL을 기록할 파일")
     args = p.parse_args()
 
@@ -174,8 +239,8 @@ def main():
         print("[telemetry] off — 전송 안 함")
         return 0
     token = os.environ.get("CHANGEGUARD_TELEMETRY_TOKEN", "")
-    if not args.repo or not token:
-        print("::warning::telemetry 켜짐이지만 telemetry_repo 또는 CHANGEGUARD_TELEMETRY_TOKEN 이 없음 — 전송 생략")
+    if not token:
+        print("::warning::telemetry 켜짐이지만 CHANGEGUARD_TELEMETRY_TOKEN 이 없음 — 전송 생략")
         return 0
     record = json.loads(Path(args.record).read_text(encoding="utf-8"))
     if not record.get("signals"):
@@ -187,7 +252,7 @@ def main():
     if src_repo and gh_token:
         src_vis = visibility(src_repo, gh_token)
     try:
-        url, level = post(record, args.repo, token, args.level, src_vis)
+        url, level = post(record, args.repo, token, args.level, src_vis, args.share_private)
     except Exception as e:   # 게이트를 막지 않는다
         print(f"::warning::telemetry 전송 실패: {type(e).__name__}: {str(e)[:200]}")
         return 0

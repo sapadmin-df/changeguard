@@ -145,6 +145,65 @@ class Telemetry(unittest.TestCase):
         self.assertIn(("POST", "/repos/o/telemetry/issues/5/comments"), calls)
         self.assertNotIn(("POST", "/repos/o/telemetry/issues"), calls)
 
+    # --- REQ-C.3 경계 (docs/REQUIREMENTS.md) ---
+    def mixed(self):
+        return nz.normalize(result("block", [DET_PIPE, LLM_NET], assessment={
+            "intent": "suspicious", "rationale": "근거 서술", "reviewer_focus": ["x"]}),
+            {"repo": "acme/private-app", "pr_number": 9})
+
+    def test_consent_allows_full_but_hides_high_plus(self):   # C.3-2 + C.3-3
+        r, level, notes = tm.prepare(self.mixed(), "full", "private", "public", share_private=True)
+        self.assertEqual(level, "full")
+        hi = next(f for f in r["findings"] if f["severity"] == "critical")
+        med = next(f for f in r["findings"] if f["severity"] == "medium")
+        self.assertEqual(hi.get("redacted"), "high+")
+        self.assertNotIn("path", hi)
+        self.assertNotIn("description", hi)
+        self.assertEqual(med["path"], "src/a.py")             # medium 은 동의 하에 공개
+        self.assertNotIn("rationale", r["llm"])
+        self.assertTrue(any("동의" in n for n in notes))
+
+    def test_no_consent_still_minimal(self):                     # C.3-2
+        r, level, _ = tm.prepare(self.mixed(), "full", "private", "public", share_private=False)
+        self.assertEqual(level, "minimal")
+        self.assertTrue(all("path" not in f for f in r["findings"]))
+
+    def test_private_target_keeps_detail(self):
+        r, level, notes = tm.prepare(self.mixed(), "full", "private", "private")
+        self.assertEqual(level, "full")
+        self.assertIn("path", next(f for f in r["findings"] if f["severity"] == "critical"))
+        self.assertEqual(notes, [])
+
+    def test_unknown_target_treated_public(self):
+        r, _, _ = tm.prepare(self.mixed(), "full", "public", "unknown")
+        self.assertEqual(next(f for f in r["findings"] if f["severity"] == "critical").get("redacted"), "high+")
+
+    def test_untrusted_text_rendering(self):                     # C.3-4
+        evil = dict(LLM_NET, location="src/@admin|x`y`.py:3", description="```\n@everyone " + "A" * 900)
+        rec = nz.normalize(result("advisory", [evil]), {"repo": "o/pub"})
+        r, _, _ = tm.prepare(rec, "full", "public", "public")
+        f = r["findings"][0]
+        self.assertLessEqual(len(f["description"]), tm.TEXT_MAX)
+        row = tm.summary_md(r).splitlines()[-1]
+        self.assertEqual(row.count("|"), 6)                       # 표 칸이 깨지지 않음
+        self.assertIn("`src/@admin/x'y'.py:3`", row)               # @멘션은 code span 안
+        block = tm.record_block(r)
+        fence = block.split("json", 1)[0]
+        self.assertGreater(len(fence), 3)                         # 내용 속 ``` 보다 긴 fence
+        self.assertTrue(block.endswith(fence))
+
+    def test_default_repo_is_changeguard(self):
+        seen = {}
+
+        def fake_post(record, repo, *a, **k):
+            seen["repo"] = repo
+            return "u", "minimal"
+        p = Path(self._tmp("rec.json")); p.write_text(json.dumps(self.rec), encoding="utf-8")
+        with mock.patch.object(tm, "post", side_effect=fake_post):
+            self.run_main(["--record", str(p)], {"CG_TELEMETRY": "minimal", "CG_TELEMETRY_REPO": "",
+                                                "CHANGEGUARD_TELEMETRY_TOKEN": "t", "GITHUB_TOKEN": ""})
+        self.assertEqual(seen["repo"], "sapadmin-df/changeguard")
+
     def _tmp(self, name):
         import tempfile
         d = tempfile.mkdtemp()

@@ -59,7 +59,7 @@ jobs:
       policy_sha: <SHA>
       llm_model: ${{ vars.LLM_MODEL }}
       telemetry: full                          # off | minimal | full
-      telemetry_repo: <owner>/<telemetry-repo> # 필수, private 권장
+      telemetry_repo: sapadmin-df/changeguard  # 공개 공유 지점 (REQUIREMENTS.md G6)
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -71,9 +71,16 @@ jobs:
 - **이슈 단위**: PR 실행은 PR마다 한 이슈, push 실행은 커밋마다 한 이슈. 같은 PR의 다음
   실행은 같은 이슈에 댓글로 레코드를 덧붙인다 (재실행·후속 커밋 추적).
 - **공개 범위 보호**: 소비자가 private인데 telemetry repo가 public이면 `minimal`로 강제한다
-  (파일 경로·finding 문구·LLM 서술 제외). minimal에도 repo 이름과 run 링크는 남는다 —
-  그것도 싫으면 **private telemetry repo**를 쓴다. changeguard 본 repo는 public이므로
-  private 소비자의 full telemetry 대상으로 쓰지 않는다.
+  (파일 경로·finding 문구·LLM 서술 제외). minimal에도 repo 이름과 run 링크는 남는다.
+  공유 지점은 공개를 원칙으로 한다(별도 private repo 미채택, 2026-11-18 합의).
+- **소유자 동의**: private 소비자의 소유자가 `telemetry_share_private: true` 를 주면 full로
+  보낸다 (경로·medium 이하 문구 포함). 동의는 소비자 workflow 파일에 남으므로 기록된다.
+- **high/critical 상세 비공개**: 공개 telemetry repo에는 high/critical finding의 경로·라인·문구와
+  LLM 서술을 싣지 않고 `redacted: "high+"` 와 규칙·id만 남긴다 (아직 고치지 않은 취약점을 공개
+  지점에 모으지 않음). 원본은 소비자 run의 artifact에 있다.
+- **diff 유래 문구**: 표에서는 code span 안에만(@멘션·링크 무력화), 레코드 문구는 300자 제한,
+  JSON 블록은 내용 속 백틱보다 긴 fence로 감싼다.
+- 경계의 SSOT는 [REQUIREMENTS.md](REQUIREMENTS.md) REQ-C.3, 결정 분기점은 §D.
 - 실패해도 게이트에는 영향이 없다 (경고만).
 
 issue를 고른 이유: 실행 링크·사람 피드백(라벨·댓글)·검색이 한곳에서 되고 별도 인프라가
@@ -98,7 +105,7 @@ finding id는 PR 코멘트의 각 finding 옆(`rule · id`)에 표시된다. 피
 python3 scripts/cg-insights.py --artifacts dfocus-sapsol/oh-my-bas --job-timing --ledger out/
 
 # telemetry issue + 피드백
-python3 scripts/cg-insights.py --issues <owner>/<telemetry-repo> --ledger out/
+python3 scripts/cg-insights.py --issues sapadmin-df/changeguard --ledger out/
 
 # 정책 버전 하나만 (개선 전후 비교)
 python3 scripts/cg-insights.py --artifacts <repo> --policy-version 0.18.0

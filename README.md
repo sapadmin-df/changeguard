@@ -10,6 +10,10 @@ CI(GitHub Actions)가 *동일한 정책*으로 incoming 변경을 검증합니�
 > 게이트 하나이고, pre-commit·release·dependency 등은 같은 엔진 위에 점진적으로
 > 추가될 예정입니다. 아래 "확장 로드맵" 참조.
 
+> **요구사항 SSOT:** [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)에 고정 북극성이 있습니다.
+> 핵심, 준수, 제약 요구사항과 합의 기록, Gap이 여기에 정리되어 있습니다. 이 README와 다른
+> 문서는 그 아래의 가변 spec입니다.
+
 ## 사상
 
 - **단일 정책 출처(Single Source of Truth)**: 검사 로직·기준이 한 곳에만 존재.
@@ -149,9 +153,10 @@ SSH and GPG keys — Authentication Key와는 별도 항목). GitHub의 SSH 공�
   (`runs.csv`·`findings.csv`·`feedback.csv`·`ledger.sqlite`, `--sql` 바로 질의) 생성.
   규칙별 통계, LLM 가용성·비용 추정, 단계·diff 크기·정책 버전별 런타임, `--job-timing` 으로
   GitHub job·step 시간까지. 고정된 판단 규칙으로 개선 후보를 낸다.
-- **opt-in telemetry** (기본 off) — 입력 `telemetry: off|minimal|full` + `telemetry_repo` +
-  secret `CHANGEGUARD_TELEMETRY_TOKEN`. 분석 신호가 있는 실행만 PR·커밋 단위 issue로 연결.
-  private 소비자 → public 대상이면 minimal 강제.
+- **opt-in telemetry** (기본 off) — 입력 `telemetry: off|minimal|full` + secret
+  `CHANGEGUARD_TELEMETRY_TOKEN`. 분석 신호가 있는 실행만 PR·커밋 단위 issue로 연결. 공유 지점은
+  기본으로 이 repo(공개). private 소비자는 minimal 강제, 소유자가 `telemetry_share_private: true`
+  로 동의하면 full. 공개 대상에는 high/critical 상세를 싣지 않는다 (REQ-C.3).
 - **사람 피드백** — telemetry issue 라벨 `fb:*`, 댓글 `/cg fp <finding_id>`. PR 코멘트에
   finding의 `rule · id`, 실제 사용 모델(고정 기본값이 아니면 ⚠)을 표시.
 
