@@ -136,6 +136,33 @@ git config commit.gpgsign true
 SSH and GPG keys — Authentication Key와는 별도 항목). GitHub의 SSH 공개키는
 계정당 유일하므로, 여러 계정으로 기여한다면 계정마다 별도의 키가 필요하다.
 
+## v0.18 — 피드백 루프: 정규화 레코드 · 통계 원장 · opt-in telemetry
+
+실행 결과를 *단순 쿼리로 역공학*해 판정·성능 개선점을 도출하는 루프를 넣었다.
+상세·질의 예시·반영 절차: **[docs/FEEDBACK-LOOP.md](docs/FEEDBACK-LOOP.md)** (루프의 SSOT).
+
+- **정규화 레코드** `review-record.json` (`changeguard.review/v1`, `checks/normalize.py`) —
+  모든 finding에 안정적 규칙 ID(`rule`)·`id`·경로 분류, 판정 주체·정적↔LLM 불일치·신호,
+  구조화된 LLM 상태(`llm_run`: state·failure_class·모델·fallback·토큰·지연), 단계별 런타임
+  (`timings`). v0.17 이하 결과도 소급 변환. artifact 보존 30 → 90일.
+- **`scripts/cg-insights.py`** — artifact·telemetry issue를 모아 보고서와 **통계 원장**
+  (`runs.csv`·`findings.csv`·`feedback.csv`·`ledger.sqlite`, `--sql` 바로 질의) 생성.
+  규칙별 통계, LLM 가용성·비용 추정, 단계·diff 크기·정책 버전별 런타임, `--job-timing` 으로
+  GitHub job·step 시간까지. 고정된 판단 규칙으로 개선 후보를 낸다.
+- **opt-in telemetry** (기본 off) — 입력 `telemetry: off|minimal|full` + `telemetry_repo` +
+  secret `CHANGEGUARD_TELEMETRY_TOKEN`. 분석 신호가 있는 실행만 PR·커밋 단위 issue로 연결.
+  private 소비자 → public 대상이면 minimal 강제.
+- **사람 피드백** — telemetry issue 라벨 `fb:*`, 댓글 `/cg fp <finding_id>`. PR 코멘트에
+  finding의 `rule · id`, 실제 사용 모델(고정 기본값이 아니면 ⚠)을 표시.
+
+1회차 실측 (oh-my-bas 751 run, v0.17.1)에서 바로 반영한 것:
+
+| 문제 | 수정 | fixture |
+|---|---|---|
+| diff에 비 UTF-8 바이트가 있으면 `ci-caller`가 크래시 — 5개 push가 검토 없이 반영 | 대체 문자로 읽음 | — |
+| pipe-to-shell 정적 패턴이 `\| VAR=값 sh -`, `\| sudo bash` 를 놓침 (k3s 설치 — LLM만 medium) | 환경변수·sudo·env 접두 포함 | M20 |
+| LLM 미가용 42건이 모두 크레딧·한도였지만 구분 불가 | `failure_class` (billing·quota·auth·model_not_found·transient) | 단위 테스트 |
+
 ## v0.17.1 — v0.16 소비자의 bump 자동 검증·POLICY_UPDATED 복구
 
 v0.16 reusable workflow 전환 후 소비자 워크플로우에는 `POLICY_REPO_SHA:` 줄이 없고

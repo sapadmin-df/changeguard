@@ -178,9 +178,13 @@ jobs:
     with:
       policy_sha: $POLICY_SHA
       llm_model: \${{ vars.LLM_MODEL }}   # 선택 — 비우면 정책 고정 기본 모델
+      # telemetry (opt-in, 기본 off) — changeguard 개선에 참여하려면 주석 해제 (docs/FEEDBACK-LOOP.md)
+      # telemetry: full                          # off | minimal | full
+      # telemetry_repo: <owner>/<telemetry-repo> # private 권장
     secrets:
       ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}
       SLACK_WEBHOOK_URL: \${{ secrets.SLACK_WEBHOOK_URL }}
+      # CHANGEGUARD_TELEMETRY_TOKEN: \${{ secrets.CHANGEGUARD_TELEMETRY_TOKEN }}  # telemetry 사용 시
 EOF
 )
 

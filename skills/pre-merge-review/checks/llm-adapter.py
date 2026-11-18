@@ -251,7 +251,7 @@ def call_anthropic(system_prompt, user_message, api_key, model,
     raise LLMCallError("재시도 소진")
 
 
-def _meta(description, severity="medium", location="n/a"):
+def _meta(description, severity="medium", location="n/a", rule="llm.meta"):
     return {
         "severity": severity,
         "category": "meta",
@@ -259,7 +259,29 @@ def _meta(description, severity="medium", location="n/a"):
         "description": description,
         "source": "llm",
         "confidence": "high",
+        "rule": rule,
     }
+
+
+def classify_llm_failure(message):
+    """LLM 호출 실패 메시지 → 집계용 분류 (v0.18).
+
+    실측: oh-my-bas 42건이 전부 크레딧 소진·사용 한도 — 운영 문제(billing/quota)와
+    일시 장애(transient), 설정 오류(model_not_found/auth)를 구분해야 대응이 달라진다.
+    """
+    m = message.lower()
+    if "credit balance" in m:
+        return "billing"
+    if "usage limit" in m or "spend limit" in m:
+        return "quota"
+    if "http 401" in m or "authentication" in m or "invalid x-api-key" in m:
+        return "auth"
+    if "http 404" in m or "not_found" in m:
+        return "model_not_found"
+    if any(k in m for k in ("http 429", "http 5", "overloaded", "timeout", "timed out",
+                            "urlerror", "connection", "재시도 소진")):
+        return "transient"
+    return "other"
 
 
 def response_problem(response):
@@ -273,13 +295,27 @@ def response_problem(response):
     if stop == "refusal":
         category = (response.get("stop_details") or {}).get("category") or "unknown"
         return _meta(f"LLM이 분석을 거절함 (stop_reason=refusal, category={category}, "
-                     f"model={model}). LLM 분석 없이 결정론 결과만으로 판정 — 사람 검토 필요."), \
+                     f"model={model}). LLM 분석 없이 결정론 결과만으로 판정 — 사람 검토 필요.",
+                     rule="llm.refused"), \
             f"refused ({category})"
     if stop == "max_tokens":
         return _meta(f"LLM 응답이 max_tokens({MAX_TOKENS})에서 잘림 (model={model}). "
-                     "LLM 분석 없이 결정론 결과만으로 판정 — 사람 검토 필요."), \
+                     "LLM 분석 없이 결정론 결과만으로 판정 — 사람 검토 필요.",
+                     rule="llm.truncated"), \
             "truncated (max_tokens)"
     return None
+
+
+def findings_from_parsed(parsed):
+    """extract_json_from_response 결과 → (findings, assessment, parse_error).
+
+    rule ID는 LLM 출력이 아니라 코드가 붙인다 (LLM이 rule을 위조해 집계를 오염시키지 못하게).
+    """
+    if parsed.get("_parse_error"):
+        return [_meta("LLM 응답을 JSON으로 파싱하지 못함 — LLM 분석 없이 결정론 결과만으로 판정. "
+                      "사람 검토 필요.", rule="llm.parse_error")], None, True
+    return (sanitize_llm_findings(parsed.get("findings", [])),
+            sanitize_assessment(parsed.get("assessment")), False)
 
 
 def extract_json_from_response(response):
@@ -310,17 +346,9 @@ def extract_json_from_response(response):
         except json.JSONDecodeError:
             pass
 
-    # 파싱 실패 — LLM 분석이 없었던 것과 같다. v0.17: low→medium (조용한 pass 방지)
-    return {
-        "findings": [{
-            "severity": "medium",
-            "category": "meta",
-            "location": "n/a",
-            "description": "LLM 응답을 JSON으로 파싱하지 못함 — LLM 분석 없이 결정론 결과만으로 판정. 사람 검토 필요.",
-            "confidence": "high",
-        }],
-        "_raw_text": text[:500],
-    }
+    # 파싱 실패 — LLM 분석이 없었던 것과 같다. findings_from_parsed 가 medium meta로 보고
+    # (v0.17: low→medium, 조용한 pass 방지)
+    return {"findings": [], "_parse_error": True, "_raw_text": text[:500]}
 
 
 # ---------- Finding sanitization ----------
@@ -345,14 +373,8 @@ def sanitize_llm_findings(raw_findings):
     if not isinstance(raw_findings, list):
         # raw_findings가 list 자체가 아닌 경우 (string, dict 등)
         # → 응답 형식 손상으로 간주, meta finding 추가
-        return [{
-            "severity": "medium",
-            "category": "meta",
-            "location": "llm_response",
-            "description": "LLM 응답의 findings 필드가 array가 아님 — 응답 형식 손상 감지.",
-            "source": "llm",
-            "confidence": "high",
-        }]
+        return [_meta("LLM 응답의 findings 필드가 array가 아님 — 응답 형식 손상 감지.",
+                      location="llm_response", rule="llm.response_malformed")]
 
     for f in items:
         if not isinstance(f, dict):
@@ -379,20 +401,16 @@ def sanitize_llm_findings(raw_findings):
             "confidence": f.get("confidence", "medium")
                           if f.get("confidence") in {"high", "medium", "low"}
                           else "medium",
+            # 집계 키 — LLM의 위협 판단은 category 단위, 위협 아닌 메모(meta)는 llm.note
+            "rule": "llm.note" if cat == "meta" else f"llm.{cat}",
         })
 
     # 무시된 항목이 있으면 운영자에게 가시화 (LLM 응답 품질 신호)
     if dropped_count > 0:
-        cleaned.append({
-            "severity": "low",
-            "category": "meta",
-            "location": "llm_response",
-            "description": f"LLM 응답에서 {dropped_count}개 invalid 항목을 무시함 "
-                           f"(dict 아님, description 누락, 또는 형식 손상). "
-                           f"LLM 응답 품질이 저하되었을 수 있음.",
-            "source": "llm",
-            "confidence": "high",
-        })
+        cleaned.append(_meta(
+            f"LLM 응답에서 {dropped_count}개 invalid 항목을 무시함 "
+            f"(dict 아님, description 누락, 또는 형식 손상). LLM 응답 품질이 저하되었을 수 있음.",
+            severity="low", location="llm_response", rule="llm.response_malformed"))
 
     return cleaned
 
@@ -482,7 +500,7 @@ def main():
     bump_verification = None
     if args.bump_verification:
         try:
-            bump_verification = json.loads(Path(args.bump_verification).read_text())
+            bump_verification = json.loads(Path(args.bump_verification).read_text(encoding="utf-8"))
             if not bump_verification.get("bump_detected"):
                 bump_verification = None
         except (OSError, json.JSONDecodeError) as e:
@@ -494,6 +512,9 @@ def main():
     llm_status = "skipped"
     llm_model = None          # 실제 응답한 모델 (fallback 시 요청 모델과 다를 수 있음)
     llm_model_source = None
+    # v0.18: 사후 분석용 구조화 상태 — summary 문자열을 파싱하지 않아도 되게.
+    # state: skipped|ok|refused|truncated|parse_error|failed|no_key|mock
+    llm_run = {"state": "skipped"}
 
     if args.skip_llm:
         llm_status = "skipped (--skip-llm)"
@@ -501,6 +522,7 @@ def main():
         try:
             mock_data = json.loads(Path(args.mock).read_text(encoding="utf-8"))
             llm_status = f"mock ({args.mock})"
+            llm_run = {"state": "mock"}
             # v0.17: mock이 Messages API 응답 형태(stop_reason/content)면 실제 응답과 같은
             # 경로로 처리 — refusal/max_tokens 처리를 fixture로 고정하기 위함
             if "stop_reason" in mock_data or "content" in mock_data:
@@ -511,8 +533,7 @@ def main():
                 else:
                     mock_data = extract_json_from_response(mock_data)
             if not llm_findings:
-                llm_findings = sanitize_llm_findings(mock_data.get("findings", []))
-                llm_assessment = sanitize_assessment(mock_data.get("assessment"))
+                llm_findings, llm_assessment, _ = findings_from_parsed(mock_data)
         except (OSError, json.JSONDecodeError) as e:
             print(f"mock load error: {e}", file=sys.stderr)
             sys.exit(2)
@@ -520,46 +541,64 @@ def main():
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
             # fail-open: 결정론 결과만으로 진행 + meta advisory
-            llm_findings = [{
-                "severity": "medium",
-                "category": "meta",
-                "location": "n/a",
-                "description": "ANTHROPIC_API_KEY 미설정 — LLM 분석 생략됨. 결정론 결과만으로 판정.",
-                "source": "llm",
-                "confidence": "high",
-            }]
+            llm_findings = [_meta("ANTHROPIC_API_KEY 미설정 — LLM 분석 생략됨. 결정론 결과만으로 판정.",
+                                  rule="llm.unavailable.no_key")]
             llm_status = "api_key_missing"
+            llm_run = {"state": "no_key", "failure_class": "no_key"}
         else:
             model, llm_model_source = resolve_model(args.model, api_key)
             llm_model = model
+            llm_run = {"state": "ok", "requested_model": model, "model_source": llm_model_source}
             print(f"[llm] model={model} source={llm_model_source}", file=sys.stderr)
             llm_diff = diff_content
             if len(diff_content) > MAX_DIFF_CHARS:
                 llm_diff = diff_content[:MAX_DIFF_CHARS]
+                llm_run["diff_truncated"] = True
                 llm_findings.append(_meta(
                     f"diff가 {len(diff_content):,}자로 상한({MAX_DIFF_CHARS:,}자)을 넘어 앞부분만 LLM이 "
-                    "분석함 — 나머지는 결정론 검사만 적용됨. 사람 검토 필요."))
+                    "분석함 — 나머지는 결정론 검사만 적용됨. 사람 검토 필요.", rule="llm.diff_truncated"))
+            started = time.monotonic()
             try:
                 system_prompt = Path(args.system_prompt).read_text(encoding="utf-8")
                 user_msg = build_user_message(det_findings, llm_diff, bump_verification)
                 response = call_anthropic(system_prompt, user_msg, api_key, model)
                 llm_model = response.get("model") or model
+                usage = response.get("usage") or {}
+                llm_run.update({
+                    "model": llm_model,
+                    "fallback": llm_model != model,
+                    "stop_reason": response.get("stop_reason"),
+                    "usage": {k: usage.get(k) for k in
+                              ("input_tokens", "output_tokens",
+                               "cache_read_input_tokens", "cache_creation_input_tokens")
+                              if usage.get(k) is not None},
+                })
                 problem = response_problem(response)
                 if problem:
                     meta_finding, reason = problem
                     llm_findings.append(meta_finding)
                     llm_status = f"api ({llm_model}, {reason})"
+                    llm_run["state"] = "refused" if response.get("stop_reason") == "refusal" else "truncated"
+                    if llm_run["state"] == "refused":
+                        llm_run["refusal_category"] = (response.get("stop_details") or {}).get("category")
                 else:
-                    parsed = extract_json_from_response(response)
-                    llm_findings += sanitize_llm_findings(parsed.get("findings", []))
-                    llm_assessment = sanitize_assessment(parsed.get("assessment"))
+                    found, llm_assessment, parse_error = findings_from_parsed(
+                        extract_json_from_response(response))
+                    llm_findings += found
+                    if parse_error:
+                        llm_run["state"] = "parse_error"
                     llm_status = f"api ({llm_model})"
                     if llm_model != model:
                         llm_status = f"api ({llm_model}, fallback from {model})"
             except (LLMCallError, OSError) as e:
                 # fail-open + meta advisory
-                llm_findings.append(_meta(f"LLM 호출 실패 (model={model}): {e}. 결정론 결과만 사용."))
+                failure_class = classify_llm_failure(str(e))
+                llm_findings.append(_meta(f"LLM 호출 실패 (model={model}, {failure_class}): {e}. 결정론 결과만 사용.",
+                                          rule=f"llm.unavailable.{failure_class}"))
                 llm_status = f"failed ({str(e)[:80]})"
+                llm_run.update({"state": "failed", "failure_class": failure_class,
+                                "error": str(e)[:300]})
+            llm_run["latency_ms"] = int((time.monotonic() - started) * 1000)
 
     # 통합
     all_findings = det_findings + llm_findings
@@ -618,6 +657,8 @@ def main():
     if llm_model:
         result["llm_model"] = llm_model
         result["llm_model_source"] = llm_model_source
+    # v0.18+: 구조화된 LLM 실행 상태 (state·failure_class·usage·latency) — 사후 분석용
+    result["llm_run"] = llm_run
     # v0.13+: assessment를 별도 필드로도 export (Slack/PR comment에서 구조적 접근)
     if llm_assessment:
         result["assessment"] = llm_assessment

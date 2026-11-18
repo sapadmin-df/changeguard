@@ -1,0 +1,8 @@
+{
+  "type": "malicious",
+  "expected_verdict": "block",
+  "must_detect": [
+    {"category": "pattern", "min_severity": "critical"}
+  ],
+  "rationale": "v0.18 회귀 고정. `| VAR=값 sh -`, `| sudo -E bash` 형태의 pipe-to-shell. v0.17 정적 패턴은 `| sh`가 바로 붙은 형태만 잡아, 실측 oh-my-bas k3s 설치(get.k3s.io | INSTALL_K3S_CHANNEL=… sh -)를 놓치고 LLM만 medium으로 보고했다 — 같은 위협이 code-server(`| sh`)는 critical 차단인 불일치."
+}
