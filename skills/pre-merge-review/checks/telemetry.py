@@ -4,20 +4,24 @@ telemetry.py — 분석이 필요한 실행을 telemetry repo의 issue로 연결
 
 기본값은 꺼짐. 소비자가 reusable workflow 입력으로 명시적으로 켤 때만 동작한다:
   telemetry: off | minimal | full   (기본 off)
-  telemetry_repo: owner/name         (기본 sapadmin-df/changeguard — 공개 공유 지점)
+  telemetry_repo: owner/name         (기본 sapadmin-df-desk/changeguard-telemetry — 운영자의
+                                       private 접수함. 집계 결과만 공개 changeguard에 싣는다)
   telemetry_share_private: bool      (기본 false — private 소비자 소유자의 명시적 동의)
-  secret CHANGEGUARD_TELEMETRY_TOKEN  (telemetry repo에 **아무 권한도 없는** 계정의 토큰.
-                                       공개 repo라 issue·댓글은 누구나 쓸 수 있다 — REQ-C.3-5)
+  secret CHANGEGUARD_TELEMETRY_TOKEN  (telemetry repo에 **issue 작성·댓글만** 가능한 계정의 토큰.
+                                       private 접수함이면 read 역할, 공개 repo면 권한 없음 — REQ-C.3-5)
 
-권한 없는 계정은 라벨을 붙일 수 없으므로 라벨에 의존하지 않는다: issue는 제목 접두사
+라벨을 붙일 권한이 없는 계정을 전제로 라벨에 의존하지 않는다: issue는 제목 접두사
 `[cg-telemetry]` 와 본문 `cg-key` 로 식별하고, verdict·signal은 레코드에서 읽는다.
 같은 키의 기존 issue는 **이 토큰의 작성자가 연 것만** 이어 쓴다 (남이 같은 키로 연 issue에
 레코드가 끼어들지 않게). 라벨(cg-telemetry·fb:*)은 관리자가 붙이는 신뢰 신호다.
 
 공개·비밀 경계는 docs/REQUIREMENTS.md REQ-C.3이 SSOT다. 이 파일의 prepare()가 그 구현:
-  C.3-2  private 소스 → 공개 대상: minimal 강제. 소유자 동의(share_private) 시에만 full.
+  C.3-2  private 소스의 full 은 대상이 어디든(공개 repo·private 접수함) 소유자 동의
+         (share_private) 가 있어야 한다. 대상의 열람자는 소스의 열람자와 다르기 때문이다.
+         동의가 없으면 minimal.
   C.3-3  공개 대상이면 high/critical finding의 경로·라인·문구와 LLM 서술을 빼고 규칙만 남김
          (아직 고치지 않은 취약점 상세를 공개 지점에 모으지 않음). 원본은 소비자 artifact에 있음.
+         private 접수함이면 동의 하에 그대로 싣는다 (접수함 열람자 = 운영자가 초대한 사람).
   C.3-4  diff 유래 문구는 길이 제한, 표에서는 code span 안에만, 레코드는 깨지지 않는 fence 안에.
 
 보내는 것: normalize.py 정규화 레코드 (signals 가 있는 실행만 — 판정 차단·advisory,
@@ -40,7 +44,7 @@ import urllib.request
 from pathlib import Path
 
 API = "https://api.github.com"
-DEFAULT_REPO = "sapadmin-df/changeguard"
+DEFAULT_REPO = "sapadmin-df-desk/changeguard-telemetry"
 CELL_MAX = 120          # 표 칸 문구 상한
 TEXT_MAX = 300          # 레코드 안 diff 유래 문구(description 등) 상한
 HIGH_PLUS = {"high", "critical"}
@@ -51,7 +55,8 @@ FEEDBACK_HELP = (
     "`fb:missed` · `fb:llm-too-strict` · `fb:llm-too-lenient`\n"
     "- finding 하나에 대해 댓글: `/cg fp <finding_id> 메모` (`tp|fp|noise|missed`) — "
     "repo 권한자(OWNER·MEMBER·COLLABORATOR)의 댓글만 집계된다\n"
-    "- 집계: `python3 scripts/cg-insights.py --issues <telemetry repo> --trust <작성 계정>`\n"
+    "- 집계: `python3 scripts/cg-insights.py --issues <telemetry repo> --trust <작성 계정>` "
+    "(작성 계정의 `/cg` 댓글은 피드백으로 세지 않는다)\n"
 )
 
 
@@ -146,14 +151,17 @@ def prepare(record, level_requested, source_visibility, target_visibility, share
     level = level_requested
     notes = []
     target_public = target_visibility != "private"     # unknown 은 공개로 간주 (보수적)
-    if level == "full" and source_visibility != "public" and target_public:
+    where = "공개" if target_public else "private 접수함"
+    if level == "full" and source_visibility != "public":
+        # 소스 열람자 ≠ 대상 열람자: 대상이 private 이어도 소유자 동의가 있어야 full
         if share_private:
-            notes.append(f"소비자 repo({source_visibility})의 소유자가 공개 공유에 동의함 "
-                         f"(telemetry_share_private) — full 전송.")
+            notes.append(f"소비자 repo({source_visibility})의 소유자가 {where} telemetry repo로의 "
+                         f"full 공유에 동의함 (telemetry_share_private) — full 전송.")
         else:
             level = "minimal"
-            notes.append(f"level=full 요청이었으나 소비자 repo({source_visibility})보다 telemetry "
-                         f"repo({target_visibility})가 넓게 공개되어 minimal로 낮춤.")
+            notes.append(f"level=full 요청이었으나 소비자 repo({source_visibility})의 소유자 동의"
+                         f"(telemetry_share_private)가 없어 minimal로 낮춤 — telemetry repo"
+                         f"({target_visibility})의 열람자는 소비자 repo와 다르다.")
     r = minimal(record) if level == "minimal" else json.loads(json.dumps(record))
     if level == "full":
         for f in r.get("findings", []):
@@ -240,7 +248,7 @@ def main():
     p.add_argument("--repo", default=os.environ.get("CG_TELEMETRY_REPO") or DEFAULT_REPO)
     p.add_argument("--share-private", action="store_true",
                    default=os.environ.get("CG_TELEMETRY_SHARE_PRIVATE", "").lower() == "true",
-                   help="private 소비자 소유자가 공개 telemetry repo로의 full 전송에 동의")
+                   help="private 소비자 소유자가 telemetry repo(공개·private 접수함)로의 full 전송에 동의")
     p.add_argument("--out", help="생성·갱신한 issue URL을 기록할 파일")
     p.add_argument("--preview", help="게시될(또는 게시된) 본문 미리보기를 덧붙일 파일 (step summary에도 기록)")
     args = p.parse_args()

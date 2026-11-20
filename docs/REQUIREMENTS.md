@@ -1,6 +1,6 @@
 # changeguard REQUIREMENTS — 고정 북극성 (Layer 0)
 
-> **문서 버전:** 1.1 (2026-11-20) · 이 문서의 `REQ-*`는 **추상 수준에서 고정**된다.
+> **문서 버전:** 1.2 (2026-11-20) · 이 문서의 `REQ-*`는 **추상 수준에서 고정**된다.
 > 구현(언어·CI 제품·모델명·파일 경로)이 바뀌어도 참이어야 하는 문장만 둔다. 구체 값과 위치는
 > §D Traceability의 근거로만 쓴다.
 >
@@ -33,6 +33,7 @@
 - 규모: 소유자가 같은 소비자 1개 (oh-my-bas)
 - 판정 계층: 결정론 + LLM
 - 공개도: telemetry를 **시험 단계**로 연다. 소유자가 동의한 private 소비자 1곳에서 시작한다.
+  원본 기록은 운영자의 private 접수함에 받고, 집계 결과를 공개한다 (DP-1b, 2026-11-20).
 
 **발산 트리거:**
 - 외부 소비자가 처음 생기면 규모 축을 넓힌다. 이때 인증 방식, 소음 관리, 공개 수준을 다시
@@ -193,20 +194,24 @@ AI 에이전트 지시문 주입 같은 위험을 **로컬과 CI에서 같은 �
 
 **REQ-C.3 공개와 비밀의 경계.** 공개는 기본 지향(G6)이다. 다만 아래 경계는 고정한다.
 1. 비밀정보(키, 토큰, 웹훅)는 어떤 기록, 로그, 문서, telemetry에도 남지 않는다.
-2. **비공개 소스의 코드 내용**(경로, 라인, 문구, 근거)은 공개 대상으로 나가지 않는다. 예외는 소스
-   소유자가 명시적으로 동의한 경우뿐이다. 동의하지 않으면 집계용 최소 정보(규칙, 분류, 판정,
-   signal, 시간)만 나간다.
+2. **비공개 소스의 코드 내용**(경로, 라인, 문구, 근거)은 소스와 **열람자가 다른** 곳으로 나가지
+   않는다 (v1.2 개정: "공개 대상"에서 확대). 공유 지점이 비공개여도 열람자는 소스와 다르다.
+   예외는 소스 소유자가 명시적으로 동의한 경우뿐이다. 동의하지 않으면 집계용 최소 정보(규칙,
+   분류, 판정, signal, 시간)만 나간다.
 3. **아직 고치지 않은 취약점의 상세**를 한곳에 모아 증폭하지 않는다. 소스가 공개여도 같다.
 4. 변경에서 유래한 텍스트는 모두 신뢰하지 않는 입력으로 다룬다. 공개 지점으로 옮길 때 다른 도구나
    에이전트에게 지시로 해석되지 않는 형태로만 싣는다.
-5. 소비자가 주는 자격은 공유 지점에 대해 **익명 참여자 이상의 권한을 갖지 않는다** (v1.1 개정).
+5. 소비자가 주는 자격은 공유 지점에 대해 **기록을 추가하는 것(작성·댓글) 이상의 권한을 갖지
+   않는다** (v1.1 개정, v1.2 일반화: 공개 지점이면 익명 참여자, 비공개 접수함이면 읽기 역할).
+   분류·종결·라벨 같은 관리 권한도 갖지 않는다.
    유출되어도 공유 지점의 기존 기록을 수정·삭제하거나 관리자를 사칭할 수 없어야 하고, 정책 저장소의
    코드나 워크플로우는 물론 바꿀 수 없어야 한다. 이로써 공유 지점의 신뢰 경계가 소비자 쪽으로
    넓어지지 않는다.
 6. 공유 지점에서 일어나는 이벤트가 정책 저장소의 자동 실행을 유발해서는 안 된다.
 7. **피드백 루프 오염 방지** (v1.1 추가). 공유 지점에 쌓인 기록과 피드백은 신뢰하지 않는 입력이다.
    집계는 신뢰하기로 정한 작성자의 기록과 권한 있는 사람의 판정만 개선 후보의 근거로 삼는다.
-   누구나 쓸 수 있는 공간의 내용이 정책 완화의 근거가 되어서는 안 된다.
+   누구나 쓸 수 있는 공간의 내용이 정책 완화의 근거가 되어서는 안 된다. 기록을 올리는 자격은
+   공유 지점에서 권한자로 보이더라도 판정(피드백)의 근거가 되지 않는다 (v1.2 추가).
 
 ### C.4 Cost / Budget (경제성)
 
@@ -250,7 +255,8 @@ AI 에이전트 지시문 주입 같은 위험을 **로컬과 CI에서 같은 �
 | B.1 | Python 표준 라이브러리, bash/jq/awk만 사용 | verified |
 | B.2 | ruleset `protect-main`(서명, PR, 필수 검사), `VERSION` SemVer | verified |
 | B.3 | `examples/` malicious/benign/edge/adversarial/llm-only, run-tests 32 / integrated 46 | verified |
-| C.3-2~4 | `telemetry.py` `prepare()`: 비공개→공개 minimal 강제, `--share-private` 동의 시 full, 공개 대상 high+ redaction, code span·300자·가변 fence. 단위 테스트 `test_normalize_telemetry.py` | verified (단위 + 실전송 issue #17, 2026-11-20) |
+| C.3-2~4 | `telemetry.py` `prepare()`: 비공개 소스 full은 대상 공개 여부와 무관하게 `--share-private` 동의 필요(v0.19), 동의 없으면 minimal, 공개 대상 high+ redaction, code span·300자·가변 fence. 단위 테스트 `test_normalize_telemetry.py` | verified (단위 + 실전송 issue #17, 2026-11-20) |
+| C.3-5·7 | 봇은 접수함 read(issue 작성·댓글만), `cg-insights.py`는 작성 계정(issue 작성자·`--trust`)의 `/cg` 댓글을 `uploader_feedback`으로 거부 (v0.19) | verified (단위) |
 | C.3-6 | changeguard에는 `issues`/`issue_comment` 이벤트로 시작하는 workflow가 없음 (2026-11-18 확인) | verified |
 | C.6 | 입력 상한 600k 문자, 잘리면 `llm.diff_truncated` | verified (처리 개선은 Gap) |
 
@@ -270,6 +276,7 @@ AI 에이전트 지시문 주입 같은 위험을 **로컬과 CI에서 같은 �
 | 2026-11-18 | changeguard는 **최대한 공개**되어야 의미 있다. private telemetry 저장소는 채택하지 않는다 | G6, C.3 |
 | 2026-11-18 | 공개가 가능하면 별도 저장소 없이 **changeguard 본 저장소**를 공유 지점으로 쓰는 방향 | C.6 (spec) |
 | 2026-11-18 | oh-my-bas(private, 소유자 본인)로 telemetry를 **시험**한다 | §0 현재 위치 |
+| 2026-11-20 | 공유 지점을 **private desk org의 접수함**(`sapadmin-df-desk/changeguard-telemetry`)으로 옮긴다. 사람 계정은 triage, 봇은 read. 공개는 집계 결과로 한다. 2026-11-18의 "private 저장소 미채택"은 이 구조(원본 비공개 + 집계 공개)로 대체 | C.3-2·5·7, DP-1b |
 
 ### 결정 분기점 (재평가 대상)
 되돌릴 수 있는 spec 결정이다. 시험 운영 후 "재평가 기준"으로 판정하고, 결과를 이 표에 덧붙인다.
@@ -277,13 +284,14 @@ REQ 문장은 바뀌지 않는다. 분기 결과가 REQ를 움직여야 한다�
 
 | ID | 결정 (2026-11-18) | 대안 | 재평가 기준 | 재평가 결과 |
 |---|---|---|---|---|
-| DP-1 | telemetry 공유 지점 = **changeguard 본 저장소** (`telemetry_repo` 기본값) | 별도 public repo, private repo | 개발 issue가 telemetry에 묻히는가(`-label:cg-telemetry`로 충분한가), 알림 소음, 토큰 오남용 흔적 | **2026-11-20 1차: 유지(잠정).** 1건 issue(#17)와 재실행 댓글 1건. 라벨이 없어도 제목 접두사 `[cg-telemetry]`로 개발 issue와 구분된다(`-in:title "[cg-telemetry]"`). 표본이 작아 소음은 판정 보류 — 소비자 2곳 이상 또는 30건에서 재평가. |
+| DP-1 | telemetry 공유 지점 = **changeguard 본 저장소** (`telemetry_repo` 기본값) | 별도 public repo, private repo | 개발 issue가 telemetry에 묻히는가(`-label:cg-telemetry`로 충분한가), 알림 소음, 토큰 오남용 흔적 | **2026-11-20 2차: DP-1b로 대체.** 원본은 private 접수함, 공개는 집계 결과로 (사용자 지시, desk org 구성). 기존 #17은 시험 기록으로 남김. — 1차: 유지(잠정). 1건 issue(#17)와 재실행 댓글 1건. 라벨이 없어도 제목 접두사 `[cg-telemetry]`로 개발 issue와 구분된다(`-in:title "[cg-telemetry]"`). 표본이 작아 소음은 판정 보류 — 소비자 2곳 이상 또는 30건에서 재평가. |
 | DP-2 | private 소스는 기본 minimal, **소유자 명시 동의**(`telemetry_share_private`) 시 full | 무조건 minimal, 공개 repo면 full | 동의 경로로 보낸 내용 중 공개되면 곤란한 것이 있었는가. minimal만으로 분석이 되었는가 | **2026-11-20 1차: 유지.** 동의 경로로 공개된 것은 repo 이름, workflow 경로, medium/low LLM 서술(telemetry 설정을 설명)이었고 곤란한 내용은 없었다. 판정에 쓸모 있던 정보가 바로 그 LLM 서술이라 minimal이었다면 피드백 근거가 없었다. |
 | DP-3 | 공개 대상에는 **high/critical 상세(경로·라인·문구·LLM 서술) 미게재**, 규칙·id만 | merge 전 PR만 숨김, 전부 게재 | 숨긴 탓에 피드백·원인 분석이 막혔는가(artifact 왕복 비용). 숨겨야 했던 사례가 실제로 있었는가 | **2026-11-20 1차: 유지.** 가려진 1건은 정적 규칙 `det.workflow.change`(critical, workflow 경로)로 민감하지 않았지만, rule·id·path_class만으로 run 단위 피드백(`fb:true-positive`)이 가능했다. 숨긴 비용 낮음. 숨겨야 했던 실사례는 아직 없음 — 코드 경로(`path_class=code`)의 high+가 나오면 재평가. |
 | DP-4 | diff 유래 문구: 표는 code span, 레코드 300자 제한, 가변 길이 fence | 문구 미게재 | 렌더링 깨짐·멘션 오발송·잘림으로 분석 손실이 있었는가 | **2026-11-20 1차: 유지.** 표·code span·fence 렌더링 정상, 멘션 오발송 없음. LLM 서술이 300자에서 문장 중간에 잘림 — 분석에는 지장 없음. 발견: v0.18.0의 가변 fence를 `cg-insights`가 못 읽던 불일치를 v0.18.1에서 수정. |
 | DP-5 | 인증 = 소비자가 만든 **fine-grained PAT** (공유 지점 Issues R/W만) | GitHub App, classic PAT | 외부 소비자가 생기면 즉시 재평가 (fine-grained PAT는 다른 owner repo 불가) | **2026-11-20 기각 → DP-5b.** Issues R/W는 issue 생성만 허용하는 권한이 아니다. 관리자 명의 사칭, 남의 issue 수정·삭제, 피드백 라벨 조작이 가능해 소비자가 정책 저장소의 공격 지점이 된다 (사용자 지적). |
 | DP-5b | 인증 = **공유 지점에 아무 권한 없는 계정**의 토큰 (시험: 전용 봇 `changeguard-telemetry-bot`, gh 로그인 토큰). issue는 라벨 없이 제목 접두사 `[cg-telemetry]`로 식별하고, 기존 issue는 `author:@me`인 것만 이어 쓴다. 집계는 `--trust`로 작성자를 거르고, `/cg` 피드백은 권한자 것만 센다 | 소비자 운영자 계정(wschoe2020)의 `public_repo` PAT, GitHub App | 봇에 권한이 생기지 않았는가(정기 확인). 공유 토큰의 폐기 위험(gh logout) → 전용 `public_repo` PAT로 교체. 라벨이 없어서 분류가 불편한가 | **2026-11-20 1차: 유지.** 봇(pull만, 소유 repo·org 0)으로 issue 생성·재실행 댓글 이어쓰기(`author:@me`) 실측 성공, 라벨 없이 동작. 남은 위험: gh 로그인 토큰 공유(로그아웃 시 폐기, 범위 `repo`·`workflow`) → 장기 운영 전 `public_repo` 전용 PAT로 교체. |
 | DP-6 | 시험 대상 = **oh-my-bas** (private, 소유자 본인), `full` + 동의 | minimal로 시작 | 1회전(기록 → issue → 피드백 → 집계 → 후보)이 실제로 돌았는가 | **2026-11-20 1회전 완료.** 기록(oh-my-bas #96 block) → 공개 issue #17 → 관리자 피드백(라벨 `fb:true-positive`, `/cg tp`) → `cg-insights --trust` 원장·SQL → 규칙별 피드백 집계까지 실측. 발견 3건: ① `pr-9`가 `pr-90` issue에 붙던 키 접두어 버그(v0.18.1 수정) ② `/cg tp`와 라벨 `true-positive`가 따로 집계(v0.18.2 통일) ③ Git Bash에서 `gh issue comment -b "/cg ..."`가 경로로 변환됨(`MSYS_NO_PATHCONV=1` 문서화). |
+| DP-1b | 공유 지점 = **운영자 private 접수함** `sapadmin-df-desk/changeguard-telemetry` (desk org, 기본 권한 none). 사람 계정 triage(피드백 라벨), 봇은 org 멤버 + repo read. 집계 결과만 changeguard 본 저장소에 공개 (2026-11-20) | DP-1(공개 본 저장소), 제품별 desk 공유 | 접수함 열람자 범위가 소비자 소유자의 동의 범위를 넘지 않는가(초대 목록 정기 확인). 집계 공개가 실제로 이뤄지는가(원본만 쌓이고 공개가 멈추면 G6 위반). 외부 소비자가 초대 없이 참여할 방법이 필요해지면 재평가 | (시험 후, v0.19.0) |
 | DP-7 | 게시 내용 **미리보기**: telemetry가 켜져 있으면 공개 issue에 실릴 본문을 소비자 run의 step summary에 그대로 남긴다. 토큰이 없으면 보내지 않고 미리보기만 (켜기 전 검토) | 문서 설명만 | LLM이 두 run 연속 "diff로는 게시 범위를 검증할 수 없다"(llm.exfiltration, medium)고 지적 — 미리보기 도입 후 같은 지적이 사람에게 해소되는가 | (시험 후, v0.18.2) |
 
 ### Gaps (TBD, spec 작업 후보)
@@ -297,6 +305,7 @@ REQ 문장은 바뀌지 않는다. 분기 결과가 REQ를 움직여야 한다�
 | 6 | 대형 diff 처리(분할 또는 우선순위 선별). 잘림 22건, advisory 17건 | C.6, A.3 |
 | 7 | 제안 B(코드 파일의 주석 줄에서 실행 패턴 제외), 제안 C(test 경로 critical → high) | A.7 후보, fixture 선행 |
 | 8 | ~~피드백, telemetry 실사용 데이터 0건~~ → DP-6 1회전 완료 (2026-11-20). 표본 확대는 운영으로 | A.7, A.9 |
+| 9 | **집계 결과 공개 경로** (DP-1b): 접수함 원장(`cg-insights --ledger`)에서 규칙별 정확도·피드백 통계만 뽑아 changeguard 본 저장소에 주기적으로 게시. 원본 경로·문구는 싣지 않음. 미구현 | G6, A.7, C.3-2 |
 
 ---
 
@@ -304,4 +313,5 @@ REQ 문장은 바뀌지 않는다. 분기 결과가 REQ를 움직여야 한다�
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | 1.0 | 2026-11-18 | 최초 고정. v0.18.0 기준으로 A/B/C 정리. 공개 지향과 telemetry 시험 합의를 반영 |
+| 1.2 | 2026-11-20 | **REQ-C.3-2 확대**(공개 대상 → 소스와 열람자가 다른 모든 대상), **REQ-C.3-5 일반화**(기록 추가 이상 권한 금지), **REQ-C.3-7 보강**(기록 작성 자격의 피드백 불인정). 이유: 공유 지점을 private desk 접수함으로 옮기는 아키텍처 검증에서 ① private ≠ 같은 열람자 ② 접수함에서는 봇이 COLLABORATOR가 되어 피드백 신뢰 조건을 통과 ③ triage 봇은 라벨 조작 가능함을 확인. 영향: DP-1 → DP-1b, `telemetry.py`(기본 repo, 동의 규칙), `cg-insights.py`(작성 계정 피드백 거부), workflow 입력 기본값. v0.19.0 |
 | 1.1 | 2026-11-20 | **REQ-C.3-5 강화**(소비자 자격 ≤ 익명 참여자), **REQ-C.3-7 추가**(피드백 루프 오염 방지). 이유: Issues R/W 토큰이 소비자를 정책 저장소의 공격 지점으로 만든다는 사용자 지적. 영향: DP-5 기각 → DP-5b, `telemetry.py`(라벨 제거·author:@me), `cg-insights.py`(`--trust`, 권한자 피드백만). v0.18.1 |

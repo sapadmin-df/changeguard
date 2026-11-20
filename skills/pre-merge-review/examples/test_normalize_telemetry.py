@@ -140,7 +140,7 @@ class Telemetry(unittest.TestCase):
                 return {"private": True}
             return {"html_url": "https://github.com/o/telemetry/issues/5"}
         with mock.patch.object(tm, "api", side_effect=fake):
-            url, level, *_ = tm.post(self.rec, "o/telemetry", "t", "full", "private")
+            url, level, *_ = tm.post(self.rec, "o/telemetry", "t", "full", "private", True)
         self.assertEqual(level, "full")
         self.assertIn(("POST", "/repos/o/telemetry/issues/5/comments"), calls)
         self.assertNotIn(("POST", "/repos/o/telemetry/issues"), calls)
@@ -168,11 +168,22 @@ class Telemetry(unittest.TestCase):
         self.assertEqual(level, "minimal")
         self.assertTrue(all("path" not in f for f in r["findings"]))
 
-    def test_private_target_keeps_detail(self):
-        r, level, notes = tm.prepare(self.mixed(), "full", "private", "private")
+    def test_private_intake_with_consent_keeps_detail(self):    # DP-1b: private 접수함
+        r, level, notes = tm.prepare(self.mixed(), "full", "private", "private", share_private=True)
         self.assertEqual(level, "full")
         self.assertIn("path", next(f for f in r["findings"] if f["severity"] == "critical"))
-        self.assertEqual(notes, [])
+        self.assertIn("rationale", r["llm"])
+        self.assertTrue(any("private 접수함" in n for n in notes))
+
+    def test_private_intake_without_consent_minimal(self):      # C.3-2: 열람자가 다르다
+        r, level, notes = tm.prepare(self.mixed(), "full", "private", "private", share_private=False)
+        self.assertEqual(level, "minimal")
+        self.assertTrue(all("path" not in f for f in r["findings"]))
+        self.assertTrue(any("동의" in n for n in notes))
+
+    def test_public_source_full_without_consent(self):
+        r, level, _ = tm.prepare(self.mixed(), "full", "public", "private")
+        self.assertEqual(level, "full")
 
     def test_unknown_target_treated_public(self):
         r, _, _ = tm.prepare(self.mixed(), "full", "public", "unknown")
@@ -192,7 +203,7 @@ class Telemetry(unittest.TestCase):
         self.assertGreater(len(fence), 3)                         # 내용 속 ``` 보다 긴 fence
         self.assertTrue(block.endswith(fence))
 
-    def test_default_repo_is_changeguard(self):
+    def test_default_repo_is_desk_intake(self):
         seen = {}
 
         def fake_post(record, repo, *a, **k):
@@ -202,7 +213,7 @@ class Telemetry(unittest.TestCase):
         with mock.patch.object(tm, "post", side_effect=fake_post):
             self.run_main(["--record", str(p)], {"CG_TELEMETRY": "minimal", "CG_TELEMETRY_REPO": "",
                                                 "CHANGEGUARD_TELEMETRY_TOKEN": "t", "GITHUB_TOKEN": ""})
-        self.assertEqual(seen["repo"], "sapadmin-df/changeguard")
+        self.assertEqual(seen["repo"], "sapadmin-df-desk/changeguard-telemetry")
 
     # --- 권한 없는 계정 (REQ-C.3-5) ---
     def test_issue_created_without_labels_and_prefixed(self):
@@ -288,6 +299,17 @@ class InsightsIssues(unittest.TestCase):
         self.assertEqual(kinds, [("finding", "true-positive"), ("run", "noise"), ("run", "noise")])
         self.assertEqual(rej["untrusted_author"], 1)
         self.assertEqual(rej["untrusted_feedback"], 1)
+
+    def test_uploader_feedback_rejected_even_as_collaborator(self):   # REQ-C.3-7, DP-1b
+        it = {"number": 1, "url": "u", "author": {"login": "cg-bot"}, "labels": [],
+              "body": self.body(self.rec()),
+              "comments": [
+                  {"author": {"login": "cg-bot"}, "authorAssociation": "COLLABORATOR", "body": "/cg tp a 자기 칭찬"},
+                  {"author": {"login": "other-bot"}, "authorAssociation": "COLLABORATOR", "body": "/cg fp b x"},
+                  {"author": {"login": "sapadmin-df"}, "authorAssociation": "OWNER", "body": "/cg fp c 오탐"}]}
+        _, fb, rej = self.ci.parse_issues([it], trust=["cg-bot", "other-bot"])
+        self.assertEqual([(f["kind"], f["target"]) for f in fb], [("false-positive", "c")])
+        self.assertEqual(rej["uploader_feedback"], 2)
 
     def test_legacy_three_backtick_block(self):
         legacy = "```json changeguard-record\n" + json.dumps(self.rec()) + "\n```"

@@ -59,25 +59,33 @@ jobs:
       policy_sha: <SHA>
       llm_model: ${{ vars.LLM_MODEL }}
       telemetry: full                          # off | minimal | full
-      telemetry_repo: sapadmin-df/changeguard  # 공개 공유 지점 (REQUIREMENTS.md G6)
+      # telemetry_repo: sapadmin-df-desk/changeguard-telemetry  # 기본값 — private 접수함 (DP-1b)
+      telemetry_share_private: true            # private 소비자 소유자의 full 동의
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       CHANGEGUARD_TELEMETRY_TOKEN: ${{ secrets.CHANGEGUARD_TELEMETRY_TOKEN }}
 ```
 
-- **토큰**: telemetry repo에 **아무 권한도 없는 계정**(전용 봇 권장)의 토큰. 공개 repo라 issue·댓글은
-  누구나 쓸 수 있다. *Issues: Read & write* 토큰은 쓰지 않는다 — 관리자 명의 사칭·남의 issue 수정·
-  피드백 라벨 조작이 가능해 소비자가 정책 저장소의 공격 지점이 된다 (REQUIREMENTS REQ-C.3-5, DP-5b).
+- **공유 지점 (v0.19, DP-1b)**: 원본 기록은 운영자의 **private 접수함**
+  `sapadmin-df-desk/changeguard-telemetry` 에 받고, 공개는 집계 결과로 한다 (REQUIREMENTS G6·Gap 9).
+  접수함은 초대된 계정만 본다 — desk org 기본 권한 none, 사람 계정 triage(피드백 라벨), 봇 read.
+  공개 repo를 `telemetry_repo` 로 지정하는 것도 여전히 가능하다 (아래 공개 대상 규칙 적용).
+- **토큰**: issue 작성·댓글**만** 가능한 전용 봇 계정의 토큰. 접수함이면 봇을 desk org 멤버 +
+  repo **read** 로 두고 fine-grained PAT(그 repo 하나, Issues 쓰기)를 쓴다 — org 밖 협력자는
+  classic PAT만 쓸 수 있어 범위가 넓어진다. 공개 repo면 아무 권한 없는 계정. **triage 이상은 주지
+  않는다** — 라벨 조작·남의 issue 종결이 가능해 소비자가 피드백 원장의 공격 지점이 된다
+  (REQUIREMENTS REQ-C.3-5, DP-5b).
   issue는 라벨 없이 제목 접두사 `[cg-telemetry]`로 식별하고, 같은 키의 기존 issue는 그 계정이 연 것만 이어 쓴다.
   소비자 repo의 `GITHUB_TOKEN`은 다른 repo에 쓸 수 없다.
 - **이슈 단위**: PR 실행은 PR마다 한 이슈, push 실행은 커밋마다 한 이슈. 같은 PR의 다음
   실행은 같은 이슈에 댓글로 레코드를 덧붙인다 (재실행·후속 커밋 추적).
-- **공개 범위 보호**: 소비자가 private인데 telemetry repo가 public이면 `minimal`로 강제한다
-  (파일 경로·finding 문구·LLM 서술 제외). minimal에도 repo 이름과 run 링크는 남는다.
-  공유 지점은 공개를 원칙으로 한다(별도 private repo 미채택, 2026-11-18 합의).
+- **열람자 보호 (v0.19)**: 소비자가 private이면 telemetry repo가 public이든 private 접수함이든
+  `minimal`로 낮춘다 (파일 경로·finding 문구·LLM 서술 제외) — private이라도 열람자는 소비자 repo와
+  다르다. minimal에도 repo 이름과 run 링크는 남는다.
 - **소유자 동의**: private 소비자의 소유자가 `telemetry_share_private: true` 를 주면 full로
-  보낸다 (경로·medium 이하 문구 포함). 동의는 소비자 workflow 파일에 남으므로 기록된다.
+  보낸다. 동의는 소비자 workflow 파일에 남으므로 기록된다. 대상이 private 접수함이면 high/critical
+  상세까지, 공개 repo면 medium 이하 문구까지.
 - **high/critical 상세 비공개**: 공개 telemetry repo에는 high/critical finding의 경로·라인·문구와
   LLM 서술을 싣지 않고 `redacted: "high+"` 와 규칙·id만 남긴다 (아직 고치지 않은 취약점을 공개
   지점에 모으지 않음). 원본은 소비자 run의 artifact에 있다.
@@ -105,8 +113,10 @@ telemetry issue에서:
 finding id는 PR 코멘트의 각 finding 옆(`rule · id`)에 표시된다. 피드백은 `rule`로 집계된다.
 댓글 약어(`tp`·`fp`)는 라벨 이름(`true-positive`·`false-positive`)으로 통일해 집계한다.
 
-- **신뢰**: 라벨은 triage 권한자만 붙일 수 있어 그대로 신뢰한다. `/cg` 댓글은 repo 권한자
-  (OWNER·MEMBER·COLLABORATOR) 것만 센다 — 공개 repo라 누구나 댓글을 쓸 수 있다 (REQ-C.3-7).
+- **신뢰**: 라벨은 triage 권한자만 붙일 수 있어 그대로 신뢰한다 (그래서 봇에 triage를 주지 않는다).
+  `/cg` 댓글은 repo 권한자(OWNER·MEMBER·COLLABORATOR) 것만 센다. 단 **레코드를 올리는 계정**
+  (issue 작성자·`--trust`)의 댓글은 권한자로 보여도 세지 않는다 — 접수함에서는 봇도 COLLABORATOR다
+  (REQ-C.3-7, `rejected.uploader_feedback`).
 - **Git Bash 주의**: `gh issue comment -b "/cg tp …"` 는 MSYS 경로 변환으로 `C:/Program Files/Git/cg …`
   로 올라간다 (실측). `MSYS_NO_PATHCONV=1` 을 붙이거나 웹에서 쓴다.
 
@@ -117,8 +127,9 @@ finding id는 PR 코멘트의 각 finding 옆(`rule · id`)에 표시된다. 피
 python3 scripts/cg-insights.py --artifacts dfocus-sapsol/oh-my-bas --job-timing --ledger out/
 
 # telemetry issue + 피드백
-python3 scripts/cg-insights.py --issues sapadmin-df/changeguard --trust changeguard-telemetry-bot --ledger out/
-# --trust: 이 작성 계정의 레코드만 (공개 issue 오염 방지). /cg 댓글 피드백은 repo 권한자 것만 집계
+python3 scripts/cg-insights.py --issues sapadmin-df-desk/changeguard-telemetry --trust changeguard-telemetry-bot --ledger out/
+# --trust: 이 작성 계정의 레코드만. /cg 댓글 피드백은 repo 권한자 것만, 작성 계정 댓글은 제외
+# v0.18 시험 기록(공개): --issues sapadmin-df/changeguard
 
 # 정책 버전 하나만 (개선 전후 비교)
 python3 scripts/cg-insights.py --artifacts <repo> --policy-version 0.18.0

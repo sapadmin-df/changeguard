@@ -301,6 +301,8 @@ def parse_issues(issues, trust=None):
     - 레코드: issue 작성자의 본문·댓글에서만. trust(작성 계정 목록)가 있으면 그 계정만.
     - 실행 피드백(fb:* 라벨): 라벨은 triage 권한자만 붙일 수 있으므로 그대로 신뢰.
     - finding 피드백(/cg 댓글): repo 권한자(OWNER·MEMBER·COLLABORATOR) 댓글만.
+      단 레코드를 올리는 계정(issue 작성자·trust)의 댓글은 제외한다 — private 접수함에서는
+      작성 계정도 COLLABORATOR라, 소비자 토큰이 새면 피드백까지 쓸 수 있게 되기 때문 (REQ-C.3-7).
     """
     trust = {t.lower() for t in (trust or [])}
     records, feedback, rejected = [], [], collections.Counter()
@@ -328,6 +330,10 @@ def parse_issues(issues, trust=None):
                                      "rules": list(r.get("rule_counts", {}))})
         for c in it.get("comments", []):
             cmds = FB_CMD.findall(c.get("body") or "")
+            by = ((c.get("author") or {}).get("login") or "").lower()
+            if cmds and (by == author or by in trust):
+                rejected["uploader_feedback"] += len(cmds)
+                continue
             if cmds and c.get("authorAssociation") not in TRUSTED_ASSOC:
                 rejected["untrusted_feedback"] += len(cmds)
                 continue
