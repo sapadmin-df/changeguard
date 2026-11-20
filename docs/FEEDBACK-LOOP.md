@@ -83,6 +83,9 @@ jobs:
   지점에 모으지 않음). 원본은 소비자 run의 artifact에 있다.
 - **diff 유래 문구**: 표에서는 code span 안에만(@멘션·링크 무력화), 레코드 문구는 300자 제한,
   JSON 블록은 내용 속 백틱보다 긴 fence로 감싼다.
+- **미리보기 (v0.18.2)**: telemetry가 켜져 있으면 공개 issue에 실릴 본문을 소비자 run의 step
+  summary에 그대로 남긴다. **토큰 없이 켜면 보내지 않고 미리보기만** 남으므로, 켜기 전에 무엇이
+  공개되는지 자기 run에서 먼저 확인할 수 있다 (대상 공개 여부를 모르면 공개로 간주해 보수적으로 표시).
 - 경계의 SSOT는 [REQUIREMENTS.md](REQUIREMENTS.md) REQ-C.3, 결정 분기점은 §D.
 - 실패해도 게이트에는 영향이 없다 (경고만).
 
@@ -100,6 +103,12 @@ telemetry issue에서:
 | 댓글 `/cg fp <finding_id> 메모` (`tp`·`fp`·`noise`·`missed`) | finding 하나 | `/cg fp 3f9a1c2b7d10 부정 테스트의 문자열` |
 
 finding id는 PR 코멘트의 각 finding 옆(`rule · id`)에 표시된다. 피드백은 `rule`로 집계된다.
+댓글 약어(`tp`·`fp`)는 라벨 이름(`true-positive`·`false-positive`)으로 통일해 집계한다.
+
+- **신뢰**: 라벨은 triage 권한자만 붙일 수 있어 그대로 신뢰한다. `/cg` 댓글은 repo 권한자
+  (OWNER·MEMBER·COLLABORATOR) 것만 센다 — 공개 repo라 누구나 댓글을 쓸 수 있다 (REQ-C.3-7).
+- **Git Bash 주의**: `gh issue comment -b "/cg tp …"` 는 MSYS 경로 변환으로 `C:/Program Files/Git/cg …`
+  로 올라간다 (실측). `MSYS_NO_PATHCONV=1` 을 붙이거나 웹에서 쓴다.
 
 ## 4. 집계 — `scripts/cg-insights.py`
 

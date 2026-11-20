@@ -48,6 +48,8 @@ FB_CMD = re.compile(r'^/cg\s+(tp|fp|noise|missed)\s+(\S+)(?:\s+(.*))?$', re.MULT
 # fence 길이는 가변 (telemetry.record_block: 내용 속 백틱보다 길게) — 같은 길이의 닫는 fence까지
 RECORD_BLOCK = re.compile(r'^(`{3,})json changeguard-record\n(.*?)\n\1[ \t]*$', re.DOTALL | re.MULTILINE)
 TELEMETRY_TITLE = "[cg-telemetry]"
+# /cg 댓글의 약어를 라벨(fb:*)과 같은 이름으로 — 규칙별 피드백 집계가 한 축이 되게
+FB_CMD_KIND = {"tp": "true-positive", "fp": "false-positive", "noise": "noise", "missed": "missed"}
 TRUSTED_ASSOC = {"OWNER", "MEMBER", "COLLABORATOR"}
 
 # 개선 후보 판단 규칙
@@ -330,7 +332,7 @@ def parse_issues(issues, trust=None):
                 rejected["untrusted_feedback"] += len(cmds)
                 continue
             for kind, target, note in cmds:
-                feedback.append({"scope": "finding", "kind": kind, "target": target,
+                feedback.append({"scope": "finding", "kind": FB_CMD_KIND.get(kind, kind), "target": target,
                                  "note": note, "issue": it.get("url"),
                                  "by": (c.get("author") or {}).get("login")})
     return records, feedback, rejected
