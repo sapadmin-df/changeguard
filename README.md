@@ -164,6 +164,9 @@ SSH and GPG keys — Authentication Key와는 별도 항목). GitHub의 SSH 공�
   **v0.18.2:** 공개 issue에 실릴 본문을 소비자 run의 step summary에 미리보기로 남김 (토큰 없이 켜면
   미리보기만). `/cg tp` 등 댓글 약어를 라벨 이름으로 통일 집계. 시험 1회전 결과는
   `docs/REQUIREMENTS.md` §D 결정 분기점.
+  **v0.19.0:** 공유 지점 기본값을 운영자의 private 접수함 `sapadmin-df-desk/changeguard-telemetry`
+  로 (원본 비공개 + 집계 공개, DP-1b). private 소비자의 full은 대상이 private이어도 소유자 동의 필요
+  (열람자가 다르다). 레코드를 올리는 계정의 `/cg` 댓글은 피드백으로 세지 않음 (REQUIREMENTS v1.2).
 - **사람 피드백** — telemetry issue 라벨 `fb:*`, 댓글 `/cg fp <finding_id>`. PR 코멘트에
   finding의 `rule · id`, 실제 사용 모델(고정 기본값이 아니면 ⚠)을 표시.
 

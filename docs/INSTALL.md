@@ -80,16 +80,18 @@ issue로 연결해, 판정 피드백과 사후 분석을 함께 한다. 켜지 �
 ```yaml
     with:
       telemetry: full                          # off | minimal | full
-      # telemetry_repo: sapadmin-df/changeguard  # 기본값 — 공개 공유 지점
-      # telemetry_share_private: true            # private repo 소유자가 full 공개에 동의할 때만
+      # telemetry_repo: sapadmin-df-desk/changeguard-telemetry  # 기본값 — 운영자 private 접수함 (초대 필요)
+      # telemetry_share_private: true            # private repo 소유자가 full 공유에 동의할 때만
     secrets:
       CHANGEGUARD_TELEMETRY_TOKEN: ${{ secrets.CHANGEGUARD_TELEMETRY_TOKEN }}
 ```
 
-- 토큰: changeguard에 **아무 권한도 없는 계정**의 `public_repo` 토큰 (전용 봇 계정 권장). Issues 쓰기 권한
-  토큰은 쓰지 않는다 — 유출 시 정책 저장소의 issue·피드백을 조작할 수 있다 (REQUIREMENTS REQ-C.3-5)
+- 접수함 참여: 운영자에게 봇 계정 초대를 요청한다 (desk org 멤버 + repo read). 공개 repo를
+  `telemetry_repo` 로 지정할 수도 있다.
+- 토큰: 봇 계정의 fine-grained PAT (접수함 repo 하나, Issues 쓰기). 봇에 triage 이상을 주지 않는다 —
+  유출 시 피드백 라벨을 조작할 수 있다 (REQUIREMENTS REQ-C.3-5)
 - private 소비자는 자동으로 `minimal` (경로·문구 미포함). 소유자가 `telemetry_share_private: true`
-  로 동의하면 `full`. 어느 경우든 high/critical 상세는 공개 issue에 싣지 않는다.
+  로 동의하면 `full`. 대상이 공개 repo면 동의해도 high/critical 상세는 싣지 않는다.
 - 설정·피드백 방법·집계 질의: [FEEDBACK-LOOP.md](FEEDBACK-LOOP.md)
 
 ## 첫 push 후 확인
