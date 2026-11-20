@@ -161,6 +161,9 @@ SSH and GPG keys — Authentication Key와는 별도 항목). GitHub의 SSH 공�
   저장소의 공격 지점으로 만든다). issue는 라벨 없이 `[cg-telemetry]` 제목으로 식별, 기존 issue는
   같은 작성자 것만 이어 씀. `cg-insights --trust <계정>` 으로 작성자를 거르고 `/cg` 피드백은
   권한자 것만 집계 (REQ-C.3-5·7).
+  **v0.18.2:** 공개 issue에 실릴 본문을 소비자 run의 step summary에 미리보기로 남김 (토큰 없이 켜면
+  미리보기만). `/cg tp` 등 댓글 약어를 라벨 이름으로 통일 집계. 시험 1회전 결과는
+  `docs/REQUIREMENTS.md` §D 결정 분기점.
 - **사람 피드백** — telemetry issue 라벨 `fb:*`, 댓글 `/cg fp <finding_id>`. PR 코멘트에
   finding의 `rule · id`, 실제 사용 모델(고정 기본값이 아니면 ⚠)을 표시.
 

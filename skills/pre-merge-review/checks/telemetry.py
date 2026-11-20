@@ -180,8 +180,8 @@ def prepare(record, level_requested, source_visibility, target_visibility, share
     return r, level, notes
 
 
-def post(record, repo, token, level_requested, source_visibility, share_private=False):
-    target_visibility = visibility(repo, token)
+def render(record, level_requested, source_visibility, target_visibility, share_private=False):
+    """게시될 (title, body, level, key) — 네트워크 없음. post()와 미리보기가 같은 결과를 쓴다."""
     record, level, notes = prepare(record, level_requested, source_visibility,
                                    target_visibility, share_private)
     note = "".join(f"> {n}\n" for n in notes) + ("\n" if notes else "")
@@ -189,16 +189,35 @@ def post(record, repo, token, level_requested, source_visibility, share_private=
     body = (f"<!-- cg-key: {key} -->\ncg-key: `{key}`\n\n{note}{summary_md(record)}\n\n{FEEDBACK_HELP}\n"
             f"<details><summary>정규화 레코드 ({record['schema']}, level={level})</summary>\n\n"
             f"{record_block(record)}\n\n</details>\n")
+    title = (f"{TITLE_PREFIX} [{record.get('verdict')}] {(record.get('run') or {}).get('repo')} — "
+             f"{', '.join(record.get('signals', [])[:3])} ({key.split('/')[-1]})")[:250]
+    return title, body, level, key
+
+
+def post(record, repo, token, level_requested, source_visibility, share_private=False):
+    target_visibility = visibility(repo, token)
+    title, body, level, key = render(record, level_requested, source_visibility,
+                                     target_visibility, share_private)
     number = find_issue(repo, token, key)
     if number:
         api("POST", f"/repos/{repo}/issues/{number}/comments", token, {"body": body})
         issue = api("GET", f"/repos/{repo}/issues/{number}", token)
     else:
-        title = (f"{TITLE_PREFIX} [{record.get('verdict')}] {(record.get('run') or {}).get('repo')} — "
-                 f"{', '.join(record.get('signals', [])[:3])} ({key.split('/')[-1]})")
         # 라벨 없이 생성 — 권한 없는 계정의 라벨은 무시되고, 권한 있는 토큰은 쓰지 않는다 (C.3-5)
-        issue = api("POST", f"/repos/{repo}/issues", token, {"title": title[:250], "body": body})
-    return issue.get("html_url"), level
+        issue = api("POST", f"/repos/{repo}/issues", token, {"title": title, "body": body})
+    return issue.get("html_url"), level, title, body
+
+
+def write_preview(title, body, level, repo, sent, path=None):
+    """REQ-C.3 투명성: 공개 지점에 실릴 내용을 소비자가 자기 run에서 그대로 확인한다 (DP-7).
+    토큰이 없으면 보내지 않고 미리보기만 남긴다 — 켜기 전에 공개 범위를 검토하는 용도."""
+    head = (f"### changeguard telemetry 미리보기 — {'전송됨' if sent else '전송 안 함 (미리보기만)'}\n"
+            f"대상 `{repo}` · level `{level}` · 제목 `{title}`\n\n")
+    text = head + "<details><summary>공개 issue에 실리는 본문 그대로</summary>\n\n" + body + "\n</details>\n"
+    for target in (path, os.environ.get("GITHUB_STEP_SUMMARY")):
+        if target:
+            with open(target, "a", encoding="utf-8") as fh:
+                fh.write("\n" + text)
 
 
 def minimal(record):
@@ -223,15 +242,13 @@ def main():
                    default=os.environ.get("CG_TELEMETRY_SHARE_PRIVATE", "").lower() == "true",
                    help="private 소비자 소유자가 공개 telemetry repo로의 full 전송에 동의")
     p.add_argument("--out", help="생성·갱신한 issue URL을 기록할 파일")
+    p.add_argument("--preview", help="게시될(또는 게시된) 본문 미리보기를 덧붙일 파일 (step summary에도 기록)")
     args = p.parse_args()
 
     if args.level == "off":
         print("[telemetry] off — 전송 안 함")
         return 0
     token = os.environ.get("CHANGEGUARD_TELEMETRY_TOKEN", "")
-    if not token:
-        print("::warning::telemetry 켜짐이지만 CHANGEGUARD_TELEMETRY_TOKEN 이 없음 — 전송 생략")
-        return 0
     record = json.loads(Path(args.record).read_text(encoding="utf-8"))
     if not record.get("signals"):
         print("[telemetry] 분석 신호 없음 — 전송 안 함")
@@ -241,8 +258,15 @@ def main():
     gh_token = os.environ.get("GITHUB_TOKEN", "")
     if src_repo and gh_token:
         src_vis = visibility(src_repo, gh_token)
+    if not token:
+        # 대상 공개 여부를 모르면 공개로 간주 (가장 보수적인 미리보기)
+        title, body, level, _ = render(record, args.level, src_vis, "unknown", args.share_private)
+        write_preview(title, body, level, args.repo, False, args.preview)
+        print("::warning::telemetry 켜짐이지만 CHANGEGUARD_TELEMETRY_TOKEN 이 없음 — 전송 생략 "
+              "(게시될 내용은 step summary 미리보기 참고)")
+        return 0
     try:
-        url, level = post(record, args.repo, token, args.level, src_vis, args.share_private)
+        url, level, title, body = post(record, args.repo, token, args.level, src_vis, args.share_private)
     except Exception as e:   # 게이트를 막지 않는다
         print(f"::warning::telemetry 전송 실패: {type(e).__name__}: {str(e)[:200]}")
         return 0
@@ -253,6 +277,7 @@ def main():
     if summary and url:
         with open(summary, "a", encoding="utf-8") as fh:
             fh.write(f"\n**changeguard telemetry** ({level}): {url}\n")
+    write_preview(title, body, level, args.repo, True, args.preview)
     return 0
 
 

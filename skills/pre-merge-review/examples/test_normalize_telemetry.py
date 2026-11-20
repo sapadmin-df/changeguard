@@ -123,7 +123,7 @@ class Telemetry(unittest.TestCase):
                 return {"html_url": "https://github.com/x/y/issues/1"}
             return {}
         with mock.patch.object(tm, "api", side_effect=fake):
-            url, level = tm.post(self.rec, "sapadmin-df/changeguard", "t", "full", "private")
+            url, level, *_ = tm.post(self.rec, "sapadmin-df/changeguard", "t", "full", "private")
         self.assertEqual(level, "minimal")
         body = next(b for m, p, b in calls if p.endswith("/issues") and m == "POST")["body"]
         self.assertNotIn("tests/run.sh", body)          # 경로 미노출
@@ -140,7 +140,7 @@ class Telemetry(unittest.TestCase):
                 return {"private": True}
             return {"html_url": "https://github.com/o/telemetry/issues/5"}
         with mock.patch.object(tm, "api", side_effect=fake):
-            url, level = tm.post(self.rec, "o/telemetry", "t", "full", "private")
+            url, level, *_ = tm.post(self.rec, "o/telemetry", "t", "full", "private")
         self.assertEqual(level, "full")
         self.assertIn(("POST", "/repos/o/telemetry/issues/5/comments"), calls)
         self.assertNotIn(("POST", "/repos/o/telemetry/issues"), calls)
@@ -197,7 +197,7 @@ class Telemetry(unittest.TestCase):
 
         def fake_post(record, repo, *a, **k):
             seen["repo"] = repo
-            return "u", "minimal"
+            return "u", "minimal", "t", "b"
         p = Path(self._tmp("rec.json")); p.write_text(json.dumps(self.rec), encoding="utf-8")
         with mock.patch.object(tm, "post", side_effect=fake_post):
             self.run_main(["--record", str(p)], {"CG_TELEMETRY": "minimal", "CG_TELEMETRY_REPO": "",
@@ -229,6 +229,21 @@ class Telemetry(unittest.TestCase):
                 {"number": 3, "body": "<!-- cg-key: acme/x#pr-90 -->"},
                 {"number": 4, "body": "<!-- cg-key: acme/x#pr-9 -->"}]}):
             self.assertEqual(tm.find_issue("o/r", "t", "acme/x#pr-9"), 4)
+
+    def test_no_token_writes_preview_only(self):                # DP-7
+        p = Path(self._tmp("rec.json")); p.write_text(json.dumps(self.rec), encoding="utf-8")
+        prev = Path(self._tmp("preview.md"))
+        with mock.patch.object(tm, "api") as api:
+            rc, out = self.run_main(["--record", str(p), "--preview", str(prev)],
+                                    {"CG_TELEMETRY": "full", "CHANGEGUARD_TELEMETRY_TOKEN": "",
+                                     "CG_TELEMETRY_SHARE_PRIVATE": "true", "GITHUB_TOKEN": "",
+                                     "GITHUB_STEP_SUMMARY": ""})
+        self.assertEqual(rc, 0)
+        api.assert_not_called()                                  # 아무것도 보내지 않음
+        text = prev.read_text(encoding="utf-8")
+        self.assertIn("전송 안 함", text)
+        self.assertIn("cg-key: acme/private-app#pr-9", text)
+        self.assertIn("(비공개: high+)", text)                    # 대상 미상 → 공개로 간주
 
     def _tmp(self, name):
         import tempfile
@@ -270,7 +285,7 @@ class InsightsIssues(unittest.TestCase):
         self.assertEqual(recs[0]["findings"][0]["description"], "x ``` y")
         self.assertEqual(recs[0]["telemetry"]["author"], "wschoe2020")
         kinds = sorted((f["scope"], f["kind"]) for f in fb)
-        self.assertEqual(kinds, [("finding", "tp"), ("run", "noise"), ("run", "noise")])
+        self.assertEqual(kinds, [("finding", "true-positive"), ("run", "noise"), ("run", "noise")])
         self.assertEqual(rej["untrusted_author"], 1)
         self.assertEqual(rej["untrusted_feedback"], 1)
 
