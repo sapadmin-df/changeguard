@@ -167,6 +167,9 @@ SSH and GPG keys — Authentication Key와는 별도 항목). GitHub의 SSH 공�
   **v0.19.0:** 공유 지점 기본값을 운영자의 private 접수함 `sapadmin-df-desk/changeguard-telemetry`
   로 (원본 비공개 + 집계 공개, DP-1b). private 소비자의 full은 대상이 private이어도 소유자 동의 필요
   (열람자가 다르다). 레코드를 올리는 계정의 `/cg` 댓글은 피드백으로 세지 않음 (REQUIREMENTS v1.2).
+  **v0.19.1 (보안 수정):** 정책 SHA 자동 검증이 diff의 첫 SHA만 확인하던 결함 수정 — 워크플로우마다
+  다른 SHA로 bump하면 나머지가 검증 없이 "🟢 신뢰 가능"으로 표시됐다. 이제 새 SHA를 모두 검증하고,
+  둘 이상이면 `🟠 정책 SHA 불일치`(`overall: mismatch`, SHA별 `targets`)로 표시.
 - **사람 피드백** — telemetry issue 라벨 `fb:*`, 댓글 `/cg fp <finding_id>`. PR 코멘트에
   finding의 `rule · id`, 실제 사용 모델(고정 기본값이 아니면 ⚠)을 표시.
 

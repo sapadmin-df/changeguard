@@ -587,11 +587,17 @@ def build_slack_message(result, kind):
         if bump.get("author_login"):
             text_lines.append(f"  • author: {bump['author_login']}  ·  변경 1줄: {bump.get('message_first_line') or '(empty)'}")
         text_lines.append(f"  → {compare_link}  ·  {old_link} → {new_link}")
+        if bump.get("pin_mismatch"):
+            targets = bump.get("targets") or []
+            text_lines.append(f"  ⚠ 새 정책 SHA {len(targets)}개 — 워크플로우마다 다른 버전:")
+            for t in targets:
+                text_lines.append(f"    • {_link_commit(bump['policy_repo'], t['new_sha'])} `{t.get('overall')}`")
         # 종합 평가
         overall_badge = {
             "trusted":    "🟢 신뢰 가능 — 정책 변경 내용만 검토하면 됨",
             "unverified": "🟡 서명 누락 — main 도달 가능하지만 서명 없음 (정책상 서명 필수면 거부)",
             "suspicious": "🔴 의심 — 위 ✗ 항목 즉시 조사 필요",
+            "mismatch":   "🟠 정책 SHA 불일치 — 워크플로우끼리 버전이 다름, 의도 확인 필요",
             "unknown":    "⚪ 검증 불완전 — 네트워크/응답 문제, 수동 확인 필요",
         }.get(overall, overall)
         text_lines.append(f"  → {overall_badge}")

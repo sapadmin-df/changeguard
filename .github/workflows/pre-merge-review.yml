@@ -388,10 +388,21 @@ jobs:
               if (bump.author_login)
                 lines.push(`- author: \`${bump.author_login}\`  ·  메시지: ${bump.message_first_line || '(empty)'}`);
               lines.push(`- → ${compareLink}`);
+              if (bump.pin_mismatch && Array.isArray(bump.targets)) {
+                lines.push('', `**⚠ 새 정책 SHA가 ${bump.targets.length}개** — 워크플로우마다 다른 정책 버전을 가리킵니다:`);
+                for (const t of bump.targets) {
+                  const mark = ({trusted: '✓', unverified: '△', suspicious: '✗', unknown: '?'})[t.overall] || '?';
+                  const shaLink = mdLink(t.commit_url, '`' + t.new_sha_short + '`');
+                  lines.push(`- ${mark} ${shaLink} — \`${t.overall}\`` +
+                             ` (${t.ancestor_status || '?'}, 서명 ${t.verified === true ? '✓' : t.verified === false ? '✗' : '?'})` +
+                             (t.message_first_line ? ` · ${t.message_first_line}` : ''));
+                }
+              }
               const overallBadge = ({
                 trusted:    '🟢 **신뢰 가능** — 정책 변경 내용만 검토하면 됩니다',
                 unverified: '🟡 **서명 누락** — main 도달 가능하지만 commit 서명이 없습니다',
                 suspicious: '🔴 **의심** — 위 ✗ 항목을 즉시 조사하세요',
+                mismatch:   '🟠 **정책 SHA 불일치** — 각 SHA는 검증됐지만 워크플로우끼리 버전이 다릅니다. 의도한 것인지 확인하세요',
                 unknown:    '⚪ **검증 불완전** — 네트워크/응답 문제, 수동 확인 필요',
               })[bump.overall] || bump.overall;
               lines.push('', overallBadge);
