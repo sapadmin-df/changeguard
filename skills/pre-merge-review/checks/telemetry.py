@@ -6,8 +6,13 @@ telemetry.py — 분석이 필요한 실행을 telemetry repo의 issue로 연결
   telemetry: off | minimal | full   (기본 off)
   telemetry_repo: owner/name         (기본 sapadmin-df/changeguard — 공개 공유 지점)
   telemetry_share_private: bool      (기본 false — private 소비자 소유자의 명시적 동의)
-  secret CHANGEGUARD_TELEMETRY_TOKEN  (telemetry repo의 Issues: Read & write 만 가진
-                                       fine-grained PAT 권장)
+  secret CHANGEGUARD_TELEMETRY_TOKEN  (telemetry repo에 **아무 권한도 없는** 계정의 토큰.
+                                       공개 repo라 issue·댓글은 누구나 쓸 수 있다 — REQ-C.3-5)
+
+권한 없는 계정은 라벨을 붙일 수 없으므로 라벨에 의존하지 않는다: issue는 제목 접두사
+`[cg-telemetry]` 와 본문 `cg-key` 로 식별하고, verdict·signal은 레코드에서 읽는다.
+같은 키의 기존 issue는 **이 토큰의 작성자가 연 것만** 이어 쓴다 (남이 같은 키로 연 issue에
+레코드가 끼어들지 않게). 라벨(cg-telemetry·fb:*)은 관리자가 붙이는 신뢰 신호다.
 
 공개·비밀 경계는 docs/REQUIREMENTS.md REQ-C.3이 SSOT다. 이 파일의 prepare()가 그 구현:
   C.3-2  private 소스 → 공개 대상: minimal 강제. 소유자 동의(share_private) 시에만 full.
@@ -31,7 +36,6 @@ import json
 import os
 import re
 import sys
-import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -40,14 +44,14 @@ DEFAULT_REPO = "sapadmin-df/changeguard"
 CELL_MAX = 120          # 표 칸 문구 상한
 TEXT_MAX = 300          # 레코드 안 diff 유래 문구(description 등) 상한
 HIGH_PLUS = {"high", "critical"}
-LABEL_COLORS = {"cg-telemetry": "1e7eb6", "verdict:": "cc0000", "signal:": "daa520",
-                "fb:": "36a64f", "repo:": "5319e7"}
+TITLE_PREFIX = "[cg-telemetry]"
 FEEDBACK_HELP = (
     "### 피드백 (사후 분석 루프에 반영됨)\n"
-    "- 이 실행 전체 판정에 대해 라벨: `fb:true-positive` · `fb:false-positive` · `fb:noise` · "
+    "- 이 실행 전체 판정에 대해 라벨 (관리자): `fb:true-positive` · `fb:false-positive` · `fb:noise` · "
     "`fb:missed` · `fb:llm-too-strict` · `fb:llm-too-lenient`\n"
-    "- finding 하나에 대해 댓글: `/cg fp <finding_id> 메모` (`tp|fp|noise|missed`)\n"
-    "- 집계: `python3 scripts/cg-insights.py --issues <telemetry repo>`\n"
+    "- finding 하나에 대해 댓글: `/cg fp <finding_id> 메모` (`tp|fp|noise|missed`) — "
+    "repo 권한자(OWNER·MEMBER·COLLABORATOR)의 댓글만 집계된다\n"
+    "- 집계: `python3 scripts/cg-insights.py --issues <telemetry repo> --trust <작성 계정>`\n"
 )
 
 
@@ -74,25 +78,6 @@ def issue_key(record):
     if run.get("pr_number"):
         return f"{run.get('repo')}#pr-{run['pr_number']}"
     return f"{run.get('repo')}@{(run.get('head_sha') or '')[:12]}"
-
-
-def labels_for(record):
-    run = record.get("run") or {}
-    labels = ["cg-telemetry", f"verdict:{record.get('verdict')}"]
-    labels += [f"signal:{s}" for s in record.get("signals", [])]
-    if run.get("repo"):
-        labels.append(f"repo:{run['repo'].split('/')[-1]}")
-    return labels[:20]
-
-
-def ensure_labels(repo, token, labels):
-    for name in labels:
-        color = next((c for p, c in LABEL_COLORS.items() if name.startswith(p)), "cfd3d7")
-        try:
-            api("POST", f"/repos/{repo}/labels", token, {"name": name, "color": color})
-        except urllib.error.HTTPError as e:
-            if e.code != 422:   # 422 = 이미 존재
-                raise
 
 
 def summary_md(record):
@@ -140,10 +125,18 @@ def record_block(record):
 
 
 def find_issue(repo, token, key):
-    q = urllib.request.quote(f'repo:{repo} is:issue label:cg-telemetry "cg-key: {key}" in:body')
+    """같은 키로 **이 토큰의 계정이 연** issue만 찾는다 (author:@me). 남이 같은 키로 연
+    issue에 레코드를 덧붙이는 하이재킹을 막는다. 검색 실패 시 새 issue (중복은 감수)."""
+    q = urllib.request.quote(f'repo:{repo} is:issue author:@me in:title "{TITLE_PREFIX}" '
+                             f'"cg-key: {key}" in:body')
     try:
-        items = api("GET", f"/search/issues?q={q}&per_page=1", token).get("items") or []
-        return items[0]["number"] if items else None
+        items = api("GET", f"/search/issues?q={q}&per_page=5", token).get("items") or []
+        # 키 끝 경계까지 일치 (pr-9 가 pr-90 issue에 붙지 않게)
+        exact = re.compile(rf"<!-- cg-key: {re.escape(key)} -->")
+        for it in items:
+            if exact.search(it.get("body") or ""):
+                return it["number"]
+        return None
     except Exception:
         return None
 
@@ -193,21 +186,18 @@ def post(record, repo, token, level_requested, source_visibility, share_private=
                                    target_visibility, share_private)
     note = "".join(f"> {n}\n" for n in notes) + ("\n" if notes else "")
     key = issue_key(record)
-    labels = labels_for(record)
-    ensure_labels(repo, token, labels)
-    body = (f"<!-- cg-key: {key} -->\n{note}{summary_md(record)}\n\n{FEEDBACK_HELP}\n"
+    body = (f"<!-- cg-key: {key} -->\ncg-key: `{key}`\n\n{note}{summary_md(record)}\n\n{FEEDBACK_HELP}\n"
             f"<details><summary>정규화 레코드 ({record['schema']}, level={level})</summary>\n\n"
             f"{record_block(record)}\n\n</details>\n")
     number = find_issue(repo, token, key)
     if number:
         api("POST", f"/repos/{repo}/issues/{number}/comments", token, {"body": body})
-        api("POST", f"/repos/{repo}/issues/{number}/labels", token, {"labels": labels})
         issue = api("GET", f"/repos/{repo}/issues/{number}", token)
     else:
-        title = (f"[{record.get('verdict')}] {(record.get('run') or {}).get('repo')} — "
+        title = (f"{TITLE_PREFIX} [{record.get('verdict')}] {(record.get('run') or {}).get('repo')} — "
                  f"{', '.join(record.get('signals', [])[:3])} ({key.split('/')[-1]})")
-        issue = api("POST", f"/repos/{repo}/issues", token,
-                    {"title": title[:250], "body": body, "labels": labels})
+        # 라벨 없이 생성 — 권한 없는 계정의 라벨은 무시되고, 권한 있는 토큰은 쓰지 않는다 (C.3-5)
+        issue = api("POST", f"/repos/{repo}/issues", token, {"title": title[:250], "body": body})
     return issue.get("html_url"), level
 
 

@@ -157,6 +157,10 @@ SSH and GPG keys — Authentication Key와는 별도 항목). GitHub의 SSH 공�
   `CHANGEGUARD_TELEMETRY_TOKEN`. 분석 신호가 있는 실행만 PR·커밋 단위 issue로 연결. 공유 지점은
   기본으로 이 repo(공개). private 소비자는 minimal 강제, 소유자가 `telemetry_share_private: true`
   로 동의하면 full. 공개 대상에는 high/critical 상세를 싣지 않는다 (REQ-C.3).
+  **v0.18.1:** 토큰은 changeguard에 *권한 없는 계정*의 것만 (Issues 쓰기 토큰은 소비자를 정책
+  저장소의 공격 지점으로 만든다). issue는 라벨 없이 `[cg-telemetry]` 제목으로 식별, 기존 issue는
+  같은 작성자 것만 이어 씀. `cg-insights --trust <계정>` 으로 작성자를 거르고 `/cg` 피드백은
+  권한자 것만 집계 (REQ-C.3-5·7).
 - **사람 피드백** — telemetry issue 라벨 `fb:*`, 댓글 `/cg fp <finding_id>`. PR 코멘트에
   finding의 `rule · id`, 실제 사용 모델(고정 기본값이 아니면 ⚠)을 표시.
 

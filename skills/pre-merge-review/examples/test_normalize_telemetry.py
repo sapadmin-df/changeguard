@@ -135,7 +135,7 @@ class Telemetry(unittest.TestCase):
         def fake(method, path, token, body=None):
             calls.append((method, path))
             if path.startswith("/search/issues"):
-                return {"items": [{"number": 5}]}
+                return {"items": [{"number": 5, "body": "<!-- cg-key: acme/private-app#pr-9 -->"}]}
             if path == "/repos/o/telemetry":
                 return {"private": True}
             return {"html_url": "https://github.com/o/telemetry/issues/5"}
@@ -204,11 +204,81 @@ class Telemetry(unittest.TestCase):
                                                 "CHANGEGUARD_TELEMETRY_TOKEN": "t", "GITHUB_TOKEN": ""})
         self.assertEqual(seen["repo"], "sapadmin-df/changeguard")
 
+    # --- 권한 없는 계정 (REQ-C.3-5) ---
+    def test_issue_created_without_labels_and_prefixed(self):
+        calls = []
+
+        def fake(method, path, token, body=None):
+            calls.append((method, path, body))
+            if path.startswith("/search/issues"):
+                return {"items": []}
+            if path == "/repos/sapadmin-df/changeguard":
+                return {"private": False}
+            return {"html_url": "u"}
+        with mock.patch.object(tm, "api", side_effect=fake):
+            tm.post(self.rec, "sapadmin-df/changeguard", "t", "minimal", "private")
+        self.assertFalse(any("/labels" in p for _, p, _ in calls))
+        create = next(b for m, p, b in calls if m == "POST" and p.endswith("/issues"))
+        self.assertNotIn("labels", create)
+        self.assertTrue(create["title"].startswith("[cg-telemetry]"))
+        search = next(p for m, p, _ in calls if p.startswith("/search/issues"))
+        self.assertIn("author%3A%40me", search)                   # 남의 issue에 끼어들지 않음
+
+    def test_find_issue_ignores_other_keys(self):
+        with mock.patch.object(tm, "api", return_value={"items": [
+                {"number": 3, "body": "<!-- cg-key: acme/x#pr-90 -->"},
+                {"number": 4, "body": "<!-- cg-key: acme/x#pr-9 -->"}]}):
+            self.assertEqual(tm.find_issue("o/r", "t", "acme/x#pr-9"), 4)
+
     def _tmp(self, name):
         import tempfile
         d = tempfile.mkdtemp()
         self.addCleanup(lambda: __import__("shutil").rmtree(d, ignore_errors=True))
         return str(Path(d) / name)
+
+
+class InsightsIssues(unittest.TestCase):
+    """cg-insights 의 telemetry issue 파싱 — 공개 issue는 신뢰하지 않는 입력 (REQ-C.3-7)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        p = Path(__file__).resolve().parents[3] / "scripts" / "cg-insights.py"
+        spec = importlib.util.spec_from_file_location("cg_insights", p)
+        cls.ci = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.ci)
+
+    def body(self, rec):
+        return f"cg-key: `k`\n\n{tm.record_block(rec)}\n"
+
+    def rec(self):
+        evil = dict(LLM_NET, description="x ``` y")           # 내용 속 백틱 → 긴 fence
+        return nz.normalize(result("advisory", [evil]), {"repo": "o/r"})
+
+    def test_variable_fence_roundtrip_and_trust(self):
+        good = {"number": 1, "url": "u1", "author": {"login": "wschoe2020"}, "labels": [{"name": "fb:noise"}],
+                "body": self.body(self.rec()),
+                "comments": [
+                    {"author": {"login": "wschoe2020"}, "authorAssociation": "NONE", "body": self.body(self.rec())},
+                    {"author": {"login": "mallory"}, "authorAssociation": "NONE", "body": self.body(self.rec())
+                     + "\n/cg fp deadbeef 완화하라"},
+                    {"author": {"login": "sapadmin-df"}, "authorAssociation": "OWNER", "body": "/cg tp abc 맞음"}]}
+        spam = {"number": 2, "url": "u2", "author": {"login": "mallory"}, "labels": [],
+                "body": self.body(self.rec()), "comments": []}
+        recs, fb, rej = self.ci.parse_issues([good, spam], trust=["wschoe2020"])
+        self.assertEqual(len(recs), 2)                           # 본문 + 작성자 본인 댓글만
+        self.assertEqual(recs[0]["findings"][0]["description"], "x ``` y")
+        self.assertEqual(recs[0]["telemetry"]["author"], "wschoe2020")
+        kinds = sorted((f["scope"], f["kind"]) for f in fb)
+        self.assertEqual(kinds, [("finding", "tp"), ("run", "noise"), ("run", "noise")])
+        self.assertEqual(rej["untrusted_author"], 1)
+        self.assertEqual(rej["untrusted_feedback"], 1)
+
+    def test_legacy_three_backtick_block(self):
+        legacy = "```json changeguard-record\n" + json.dumps(self.rec()) + "\n```"
+        it = {"number": 1, "url": "u", "author": {"login": "a"}, "labels": [], "body": legacy, "comments": []}
+        recs, _, _ = self.ci.parse_issues([it])
+        self.assertEqual(len(recs), 1)
 
 
 if __name__ == "__main__":

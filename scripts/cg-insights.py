@@ -6,7 +6,8 @@ cg-insights.py — changeguard 실행 결과 집계 → 개선 후보 도출 (�
   --dir DIR              review-result.json / review-record.json 들이 있는 디렉터리
                          (파일명이 <run_id>.json 이면 run_id로 쓴다 — 과거 artifact 소급 분석)
   --artifacts OWNER/REPO 소비자 repo의 pre-merge-review artifact를 내려받아 분석 (gh CLI 필요)
-  --issues OWNER/REPO    telemetry issue (label: cg-telemetry) 의 레코드와 피드백을 수집
+  --issues OWNER/REPO    telemetry issue (제목 [cg-telemetry] 또는 라벨 cg-telemetry) 의 레코드와 피드백을 수집
+  --trust LOGIN          레코드 작성 계정 신뢰 목록 (공개 repo의 오염 방지)
 
 피드백 (telemetry issue에서):
   - 라벨: fb:true-positive · fb:false-positive · fb:noise · fb:missed ·
@@ -44,7 +45,10 @@ import normalize as nz  # noqa: E402
 
 FB_LABELS = ("true-positive", "false-positive", "noise", "missed", "llm-too-strict", "llm-too-lenient")
 FB_CMD = re.compile(r'^/cg\s+(tp|fp|noise|missed)\s+(\S+)(?:\s+(.*))?$', re.MULTILINE)
-RECORD_BLOCK = re.compile(r'```json changeguard-record\n(.*?)\n```', re.DOTALL)
+# fence 길이는 가변 (telemetry.record_block: 내용 속 백틱보다 길게) — 같은 길이의 닫는 fence까지
+RECORD_BLOCK = re.compile(r'^(`{3,})json changeguard-record\n(.*?)\n\1[ \t]*$', re.DOTALL | re.MULTILINE)
+TELEMETRY_TITLE = "[cg-telemetry]"
+TRUSTED_ASSOC = {"OWNER", "MEMBER", "COLLABORATOR"}
 
 # 개선 후보 판단 규칙
 CANDIDATE_MIN_HITS = 3          # 규칙이 이 횟수 이상 걸린 run이 있어야 판단
@@ -183,6 +187,7 @@ def ledger_rows(records, prices):
             "ci_steps": ci.get("steps"),   # {step 이름: ms} — SQLite에서는 JSON 문자열 (json_extract 로 질의)
             "findings": len(r.get("findings", [])), "run_url": run.get("run_url"),
             "telemetry_issue": (r.get("telemetry") or {}).get("issue"),
+            "telemetry_author": (r.get("telemetry") or {}).get("author"),
         })
         for f in r.get("findings", []):
             finds.append({"run_id": key, "finding_id": f["id"], "rule": f["rule"], "source": f["source"],
@@ -287,33 +292,66 @@ def perf_candidates(p, runs, records):
     return c
 
 
-def load_issues(repo):
-    """telemetry issue → (records, feedback). 본문과 댓글의 레코드 블록을 모두 수집."""
-    issues = json.loads(gh("issue", "list", "-R", repo, "--label", "cg-telemetry", "--state", "all",
-                           "--limit", "1000", "--json", "number,url,labels,body,comments"))
-    records, feedback = [], []
+def parse_issues(issues, trust=None):
+    """telemetry issue 목록 → (records, feedback, rejected). 네트워크 없음 — 단위 테스트 대상.
+
+    공개 issue는 누구나 쓸 수 있으므로 신뢰하지 않는 입력으로 다룬다 (REQ-C.3-7):
+    - 레코드: issue 작성자의 본문·댓글에서만. trust(작성 계정 목록)가 있으면 그 계정만.
+    - 실행 피드백(fb:* 라벨): 라벨은 triage 권한자만 붙일 수 있으므로 그대로 신뢰.
+    - finding 피드백(/cg 댓글): repo 권한자(OWNER·MEMBER·COLLABORATOR) 댓글만.
+    """
+    trust = {t.lower() for t in (trust or [])}
+    records, feedback, rejected = [], [], collections.Counter()
     for it in issues:
-        labels = [l["name"] for l in it["labels"]]
-        texts = [it["body"]] + [c["body"] for c in it["comments"]]
+        author = ((it.get("author") or {}).get("login") or "").lower()
+        if trust and author not in trust:
+            rejected["untrusted_author"] += 1
+            continue
+        texts = [it.get("body") or ""] + [c.get("body") or "" for c in it.get("comments", [])
+                                         if ((c.get("author") or {}).get("login") or "").lower() == author]
         recs = []
         for t in texts:
-            for blk in RECORD_BLOCK.findall(t or ""):
+            for _fence, blk in RECORD_BLOCK.findall(t):
                 try:
                     recs.append(json.loads(blk))
                 except json.JSONDecodeError:
-                    pass
+                    rejected["bad_record"] += 1
         for r in recs:
-            r.setdefault("telemetry", {})["issue"] = it["url"]
+            r.setdefault("telemetry", {}).update({"issue": it.get("url"), "author": author})
         records += recs
-        for lab in labels:
+        for lab in (l["name"] for l in it.get("labels", [])):
             if lab.startswith("fb:") and lab[3:] in FB_LABELS:
                 for r in recs:
-                    feedback.append({"scope": "run", "kind": lab[3:], "issue": it["url"],
+                    feedback.append({"scope": "run", "kind": lab[3:], "issue": it.get("url"),
                                      "rules": list(r.get("rule_counts", {}))})
-        for c in it["comments"]:
-            for kind, target, note in FB_CMD.findall(c["body"] or ""):
+        for c in it.get("comments", []):
+            cmds = FB_CMD.findall(c.get("body") or "")
+            if cmds and c.get("authorAssociation") not in TRUSTED_ASSOC:
+                rejected["untrusted_feedback"] += len(cmds)
+                continue
+            for kind, target, note in cmds:
                 feedback.append({"scope": "finding", "kind": kind, "target": target,
-                                 "note": note, "issue": it["url"]})
+                                 "note": note, "issue": it.get("url"),
+                                 "by": (c.get("author") or {}).get("login")})
+    return records, feedback, rejected
+
+
+def load_issues(repo, trust=None):
+    """telemetry issue 수집: 제목 접두사 [cg-telemetry] (v0.18.1+) + 라벨 cg-telemetry (v0.18.0)."""
+    fields = "number,url,labels,body,comments,author"
+    seen = {}
+    for args in (["--search", f'in:title "{TELEMETRY_TITLE}"'], ["--label", "cg-telemetry"]):
+        try:
+            out = gh("issue", "list", "-R", repo, *args, "--state", "all", "--limit", "1000", "--json", fields)
+        except Exception:
+            continue
+        for it in json.loads(out or "[]"):
+            seen[it["number"]] = it
+    records, feedback, rejected = parse_issues(list(seen.values()), trust)
+    if not trust:
+        print("[warn] --trust 없음 — 모든 작성자의 레코드를 집계 (공개 repo면 오염 가능)", file=sys.stderr)
+    if rejected:
+        print(f"[info] 제외: {dict(rejected)}", file=sys.stderr)
     return records, feedback
 
 
@@ -483,6 +521,8 @@ def main():
     p.add_argument("--dir", action="append", default=[])
     p.add_argument("--artifacts", action="append", default=[])
     p.add_argument("--issues", action="append", default=[])
+    p.add_argument("--trust", action="append", default=[], metavar="LOGIN",
+                   help="--issues 레코드를 이 작성 계정의 것만 집계 (반복 가능). 공개 repo면 지정 권장")
     p.add_argument("--limit", type=int, default=2000, help="--artifacts 최대 개수")
     p.add_argument("--job-timing", action="store_true", help="--artifacts 에서 job·step 런타임 수집")
     p.add_argument("--policy-version", help="이 정책 버전의 run만 (개선 전후 비교용)")
@@ -505,7 +545,7 @@ def main():
     for repo in args.artifacts:
         records += load_artifacts(repo, args.limit, args.job_timing)
     for repo in args.issues:
-        r, f = load_issues(repo)
+        r, f = load_issues(repo, args.trust)
         records += r
         feedback += f
     if args.policy_version:

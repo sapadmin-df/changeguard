@@ -75,7 +75,7 @@ on:
         description: "Slack incoming webhook — 없으면 stdout만."
         required: false
       CHANGEGUARD_TELEMETRY_TOKEN:
-        description: "(v0.18+) telemetry repo의 Issues: Read & write 만 가진 fine-grained PAT. telemetry 사용 시에만."
+        description: "(v0.18+) telemetry repo에 아무 권한도 없는 계정(전용 봇)의 public_repo 토큰. Issues 쓰기 권한 토큰은 쓰지 말 것 (REQ-C.3-5). telemetry 사용 시에만."
         required: false
 
 concurrency:
