@@ -66,7 +66,10 @@ jobs:
       CHANGEGUARD_TELEMETRY_TOKEN: ${{ secrets.CHANGEGUARD_TELEMETRY_TOKEN }}
 ```
 
-- **토큰**: telemetry repo 하나에 *Issues: Read & write* 만 준 fine-grained PAT.
+- **토큰**: telemetry repo에 **아무 권한도 없는 계정**(전용 봇 권장)의 토큰. 공개 repo라 issue·댓글은
+  누구나 쓸 수 있다. *Issues: Read & write* 토큰은 쓰지 않는다 — 관리자 명의 사칭·남의 issue 수정·
+  피드백 라벨 조작이 가능해 소비자가 정책 저장소의 공격 지점이 된다 (REQUIREMENTS REQ-C.3-5, DP-5b).
+  issue는 라벨 없이 제목 접두사 `[cg-telemetry]`로 식별하고, 같은 키의 기존 issue는 그 계정이 연 것만 이어 쓴다.
   소비자 repo의 `GITHUB_TOKEN`은 다른 repo에 쓸 수 없다.
 - **이슈 단위**: PR 실행은 PR마다 한 이슈, push 실행은 커밋마다 한 이슈. 같은 PR의 다음
   실행은 같은 이슈에 댓글로 레코드를 덧붙인다 (재실행·후속 커밋 추적).
@@ -105,7 +108,8 @@ finding id는 PR 코멘트의 각 finding 옆(`rule · id`)에 표시된다. 피
 python3 scripts/cg-insights.py --artifacts dfocus-sapsol/oh-my-bas --job-timing --ledger out/
 
 # telemetry issue + 피드백
-python3 scripts/cg-insights.py --issues sapadmin-df/changeguard --ledger out/
+python3 scripts/cg-insights.py --issues sapadmin-df/changeguard --trust changeguard-telemetry-bot --ledger out/
+# --trust: 이 작성 계정의 레코드만 (공개 issue 오염 방지). /cg 댓글 피드백은 repo 권한자 것만 집계
 
 # 정책 버전 하나만 (개선 전후 비교)
 python3 scripts/cg-insights.py --artifacts <repo> --policy-version 0.18.0
