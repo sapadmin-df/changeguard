@@ -245,7 +245,7 @@ AI 에이전트 지시문 주입 같은 위험을 **로컬과 CI에서 같은 �
 | A.1 | `skills/pre-merge-review/SKILL.md`(로컬) ↔ `.github/workflows/pre-merge-review.yml`(CI)가 같은 `checks/`를 사용 | verified |
 | A.2 | `ci-caller.py` 판정 = 최고 심각도. 의미 계층은 추가만 함. `normalize.py`의 `disagreement` | verified |
 | A.3 | `llm-adapter.py`의 `llm_run.state` / `classify_llm_failure` / `llm.diff_truncated`. 미가용 시 advisory | verified |
-| A.4 | 재사용 워크플로우 `@<SHA>` + `policy_sha` 일치 검사, `policy-bump-verify.py`, `verify-workflow-pins.sh` | verified |
+| A.4 | 재사용 워크플로우 `@<SHA>` + `policy_sha` 일치 검사, `policy-bump-verify.py`(v0.19.1: diff의 새 SHA **전부** 검증, 둘 이상이면 `mismatch`), `verify-workflow-pins.sh` | verified (v0.19.1 단위; 이전엔 첫 SHA만 검증 — oh-my-bas #96에서 미검증 SHA가 '신뢰 가능'으로 표시된 결함 실측) |
 | A.5 | 기본 `claude-sonnet-5-5` 고정, `vars.LLM_MODEL` 덮어쓰기, `model_select.py` + `policy-self-test.yml` model-watch job(issue 생성), PR comment의 모델/fallback 표시 | verified |
 | A.6 | `normalize.py` 스키마 `changeguard.review/v1`, 규칙 ID, `id = sha1(rule\|path\|line)[:12]`, 소급 변환 | verified |
 | A.7 | `fb:*` 라벨, `/cg fp <id>` 댓글, `scripts/cg-insights.py` 후보 규칙, `--policy-version` 비교 | verified (실사용 피드백 0건) |

@@ -12,6 +12,7 @@ policy-bump-verify.py extract_bump 는 자동 검증(v0.14)과 POLICY_UPDATED �
 import importlib.util
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 CHECKS = Path(__file__).resolve().parent.parent / "checks"
@@ -77,6 +78,64 @@ class ExtractBump(unittest.TestCase):
     def test_no_change(self):
         same = f"@@\n-      policy_sha: {OLD}\n+      policy_sha: {OLD}\n"
         self.assertIsNone(pbv.extract_bump(same))
+
+
+# v0.19.1: 워크플로우마다 다른 새 SHA (oh-my-bas #96 실측 — watcher 는 검증, 스캐너는 미검증)
+MISMATCH = REUSABLE + f"""diff --git a/.github/workflows/policy-bump-watcher.yml b/.github/workflows/policy-bump-watcher.yml
+--- a/.github/workflows/policy-bump-watcher.yml
++++ b/.github/workflows/policy-bump-watcher.yml
+@@ -30,7 +30,7 @@ jobs:
+-    uses: sapadmin-df/changeguard/.github/workflows/policy-bump-watcher.yml@{OLD}
++    uses: sapadmin-df/changeguard/.github/workflows/policy-bump-watcher.yml@{OTHER}
+-      policy_sha: {OLD}
++      policy_sha: {OTHER}
+"""
+
+
+def fake_verify(bad=()):
+    def v(repo, old, new, token):
+        overall = "suspicious" if new in bad else "trusted"
+        return {"bump_detected": True, "policy_repo": repo, "old_sha": old, "new_sha": new,
+                "new_sha_short": new[:12], "exists": new not in bad, "verified": True,
+                "verification_reason": "valid", "reachable_from_main": new not in bad,
+                "ancestor_status": "behind", "author_login": "a", "committer_login": "web-flow",
+                "message_first_line": "m", "commit_url": "u", "compare_url": "c",
+                "overall": overall, "verdict_reasons": ["main에서 도달 불가"] if new in bad else []}
+    return v
+
+
+class AllShasVerified(unittest.TestCase):
+    def test_extract_all(self):
+        self.assertEqual(pbv.extract_bumps(MISMATCH), [(OLD, NEW), (OLD, OTHER)])
+        self.assertEqual(pbv.extract_bumps(REUSABLE), [(OLD, NEW)])
+        self.assertEqual(pbv.extract_bump(MISMATCH), (OLD, NEW))   # 하위 호환 (POLICY_UPDATED)
+
+    def test_single_sha_unchanged(self):
+        with mock.patch.object(pbv, "verify", side_effect=fake_verify()):
+            r = pbv.verify_all("o/r", pbv.extract_bumps(REUSABLE), "")
+        self.assertEqual(r["overall"], "trusted")
+        self.assertFalse(r["pin_mismatch"])
+        self.assertNotIn("targets", r)
+
+    def test_mismatch_never_trusted(self):
+        with mock.patch.object(pbv, "verify", side_effect=fake_verify()) as m:
+            r = pbv.verify_all("o/r", pbv.extract_bumps(MISMATCH), "")
+        self.assertEqual(m.call_count, 2)                            # 두 SHA 모두 검증
+        self.assertEqual(r["overall"], "mismatch")
+        self.assertTrue(r["pin_mismatch"])
+        self.assertEqual([t["new_sha"] for t in r["targets"]], [NEW, OTHER])
+        self.assertIn("불일치", r["verdict_reasons"][0])
+
+    def test_second_sha_suspicious_wins(self):
+        with mock.patch.object(pbv, "verify", side_effect=fake_verify(bad={OTHER})):
+            r = pbv.verify_all("o/r", pbv.extract_bumps(MISMATCH), "")
+        self.assertEqual(r["overall"], "suspicious")                 # 첫 SHA 가 정상이어도
+        self.assertTrue(any(OTHER[:12] in w for w in r["verdict_reasons"]))
+
+    def test_new_pin_equal_to_removed_is_not_bump(self):
+        moved = (f"@@\n-      policy_sha: {OLD}\n+      policy_sha: {OLD}\n"
+                 f"+    uses: sapadmin-df/changeguard/x.yml@{OLD}\n")
+        self.assertEqual(pbv.extract_bumps(moved), [])
 
 
 class CallerUsesSameRule(unittest.TestCase):

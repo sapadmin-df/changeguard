@@ -147,6 +147,8 @@ def build_user_message(deterministic_findings, diff_content, bump_verification=N
             "- `trusted`     — exists ✓ + reachable_from_main ✓ + verified ✓",
             "- `unverified`  — exists ✓ + reachable_from_main ✓ + verified ✗ (서명 누락만)",
             "- `suspicious`  — exists ✗ 또는 main에서 도달 불가",
+            "- `mismatch`    — 새 정책 SHA가 둘 이상 (워크플로우마다 다른 버전). 각 SHA 결과는 targets[]. "
+            "모두 검증돼도 이 값 — 버전을 다르게 둔 이유가 diff에 있는지 판단하라",
             "- `unknown`     — 네트워크 등으로 검증 실패 (fail-open)",
             "",
         ])

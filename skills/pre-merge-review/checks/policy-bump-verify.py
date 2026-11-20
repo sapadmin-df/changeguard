@@ -24,6 +24,11 @@ policy-bump-verify.py — POLICY_REPO_SHA bump의 자동 검증 (v0.14+)
 
 출력: JSON to stdout. SHA bump이 *없으면* `{"bump_detected": false}` 반환.
 
+v0.19.1: diff 안의 **모든** 새 정책 SHA를 검증한다. 이전에는 처음 찾은 SHA 하나만 검증해,
+워크플로우마다 다른 SHA로 바꾸면(예: watcher는 정상 SHA, 스캐너는 다른 SHA) 나머지가 검증 없이
+"신뢰 가능"으로 표시됐다 (oh-my-bas #96 실측). 새 SHA가 둘 이상이면 `pin_mismatch: true`,
+`targets` 에 SHA별 결과를 싣고, overall 은 가장 나쁜 결과 — 모두 정상이어도 `mismatch`.
+
 종료 코드: 항상 0 (검증 자체가 게이트를 막지 않음 — caller가 결과를 사용).
 """
 
@@ -53,6 +58,23 @@ def _bump_patterns(policy_repo):
     ]
 
 
+def extract_bumps(diff_content, policy_repo=POLICY_REPO_DEFAULT):
+    """diff의 모든 정책 SHA 변경 → [(old, new), ...] (새 SHA 기준 중복 제거, 등장 순서).
+
+    old 는 제거된 줄에서 처음 찾은 SHA (compare 기준점). 새 SHA가 제거된 SHA 중 하나와 같으면
+    (줄 이동·주석 변경) bump 이 아니다.
+    """
+    olds, news = [], []
+    for pat in _bump_patterns(policy_repo):
+        for sign, bucket in (("-", olds), ("+", news)):
+            for sha in re.findall(r'^' + re.escape(sign) + r'(?![-+]{2}).*?' + pat, diff_content, re.MULTILINE):
+                if sha not in bucket:
+                    bucket.append(sha)
+    if not olds:
+        return []
+    return [(olds[0], n) for n in news if n not in olds]
+
+
 def extract_bump(diff_content, policy_repo=POLICY_REPO_DEFAULT):
     """diff에서 정책 SHA 변경을 추출. (old, new) 또는 None.
 
@@ -60,12 +82,8 @@ def extract_bump(diff_content, policy_repo=POLICY_REPO_DEFAULT):
     이전에는 v0.15 template의 POLICY_REPO_SHA 만 봐서, v0.16 전환 이후 모든 소비자의
     bump PR에서 자동 검증(이 스크립트)과 POLICY_UPDATED 알림이 동작하지 않았다.
     """
-    for pat in _bump_patterns(policy_repo):
-        m_old = re.search(r'^-.*?' + pat, diff_content, re.MULTILINE)
-        m_new = re.search(r'^\+.*?' + pat, diff_content, re.MULTILINE)
-        if m_old and m_new and m_old.group(1) != m_new.group(1):
-            return m_old.group(1), m_new.group(1)
-    return None
+    bumps = extract_bumps(diff_content, policy_repo)
+    return bumps[0] if bumps else None
 
 
 def gh_api(path, token=None):
@@ -158,6 +176,32 @@ def verify(policy_repo, old_sha, new_sha, token):
     return result
 
 
+_RANK = {"trusted": 0, "unknown": 1, "unverified": 2, "mismatch": 3, "suspicious": 4}
+
+
+def combine(results):
+    """SHA별 verify() 결과 → 대표 결과. 첫 SHA가 대표, overall 은 가장 나쁜 것."""
+    head = dict(results[0])
+    if len(results) == 1:
+        head["pin_mismatch"] = False
+        return head
+    head["pin_mismatch"] = True
+    head["targets"] = [{k: r[k] for k in ("new_sha", "new_sha_short", "exists", "verified",
+                                          "verification_reason", "reachable_from_main",
+                                          "ancestor_status", "author_login", "committer_login",
+                                          "message_first_line", "commit_url", "compare_url",
+                                          "overall", "verdict_reasons")} for r in results]
+    worst = max((r["overall"] for r in results), key=lambda o: _RANK.get(o, 1))
+    head["overall"] = worst if _RANK.get(worst, 1) > _RANK["mismatch"] else "mismatch"
+    head["verdict_reasons"] = [f"정책 SHA 불일치 — 새 SHA {len(results)}개: "
+                               + ", ".join(r["new_sha_short"] for r in results)] +         [f"{r['new_sha_short']}: {why}" for r in results for why in r["verdict_reasons"]]
+    return head
+
+
+def verify_all(policy_repo, bumps, token):
+    return combine([verify(policy_repo, old, new, token) for old, new in bumps])
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--diff", required=True)
@@ -170,14 +214,12 @@ def main():
         print(json.dumps({"bump_detected": False, "error": f"diff read: {e}"}))
         sys.exit(0)
 
-    bump = extract_bump(diff_content, args.policy_repo)
-    if not bump:
+    if not extract_bumps(diff_content, args.policy_repo):
         print(json.dumps({"bump_detected": False}))
         sys.exit(0)
 
-    old_sha, new_sha = bump
     token = os.environ.get("GITHUB_TOKEN", "")
-    result = verify(args.policy_repo, old_sha, new_sha, token)
+    result = verify_all(args.policy_repo, extract_bumps(diff_content, args.policy_repo), token)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     sys.exit(0)
 

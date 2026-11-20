@@ -145,8 +145,17 @@
         "compare_url": { "type": "string" },
         "overall": {
           "type": "string",
-          "enum": ["trusted", "unverified", "suspicious", "unknown"],
-          "description": "trusted = exists+reachable+verified 모두 ✓. unverified = 서명만 누락. suspicious = exists/reachable 중 ✗. unknown = 네트워크 실패."
+          "enum": ["trusted", "unverified", "suspicious", "unknown", "mismatch"],
+          "description": "trusted = exists+reachable+verified 모두 ✓. unverified = 서명만 누락. suspicious = exists/reachable 중 ✗. unknown = 네트워크 실패. mismatch (v0.19.1) = 새 정책 SHA가 둘 이상 — 모두 검증돼도 이 값, 하나라도 suspicious면 suspicious."
+        },
+        "pin_mismatch": {
+          "type": "boolean",
+          "description": "v0.19.1+. diff의 새 정책 SHA가 둘 이상이면 true. 대표 필드(new_sha 등)는 첫 SHA, 전체는 targets."
+        },
+        "targets": {
+          "type": "array",
+          "description": "v0.19.1+. pin_mismatch 일 때 새 SHA별 검증 결과 (new_sha, overall, exists, verified, reachable_from_main ...).",
+          "items": { "type": "object" }
         },
         "verdict_reasons": {
           "type": "array",
